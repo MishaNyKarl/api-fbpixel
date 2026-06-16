@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Логи Meta CAPI</h1>
+
+<p class="muted">
+  Показано {{ logs|length }} из {{ total_filtered }} после фильтрации.
+  fbtrace - служебный trace id ответа Meta, для клика смотрите fbclid/fbc.
+  Текущий пользователь: {{ current_user }}.
+</p>
+
+<form method="get" action="/admin/logs" class="filters">
+  <input name="limit" value="{{ limit }}" placeholder="limit">
+  <input name="status" value="{{ status_filter }}" placeholder="status">
+  <input name="event" value="{{ event }}" placeholder="event">
+  <input name="tracker_pixel_id" value="{{ tracker_pixel_id }}" placeholder="tracker_pixel_id">
+  <input name="clickid" value="{{ clickid }}" placeholder="clickid">
+  <input name="fbclid" value="{{ fbclid }}" placeholder="fbclid">
+  <input name="domain" value="{{ domain }}" placeholder="domain">
+  <select name="buyer">
+    <option value="mine" {% if buyer == "mine" %}selected{% endif %}>Мои: {{ current_user }}</option>
+    <option value="__all__" {% if buyer == "__all__" %}selected{% endif %}>Все баеры</option>
+    {% for item in buyers %}
+    <option value="{{ item }}" {% if buyer == item or resolved_buyer == item %}selected{% endif %}>{{ item }}</option>
+    {% endfor %}
+  </select>
+  <button class="btn">Фильтр</button>
+  <a class="btn secondary" href="/admin/logs">Сбросить</a>
+</form>
+
+<div class="table-wrap">
+  <table class="logs-table">
+    <thead>
+      <tr>
+        <th>time</th>
+        <th>status</th>
+        <th>event</th>
+        <th>buyer</th>
+        <th>pixel</th>
+        <th>tracker_pixel_id</th>
+        <th>event_id</th>
+        <th>clickid</th>
+        <th>fbclid</th>
+        <th>fbc</th>
+        <th>domain</th>
+        <th>fbtrace</th>
+        <th>details</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in logs %}
+      <tr class="{% if row.skipped_duplicate %}duplicate-row{% endif %}">
+        <td>{{ row.when or "" }}</td>
+        <td>
+          {% if row.skipped_duplicate %}
+          <span class="status-warn">dup</span>
+          {% elif row.status_code and row.status_code < 300 %}
+          <span class="status-ok">{{ row.status_code }}</span>
+          {% else %}
+          <span class="status-bad">{{ row.status_code or "" }}</span>
+          {% endif %}
+        </td>
+        <td>{{ row.event_name or "" }}</td>
+        <td>{{ row.buyer_name or "" }}</td>
+        <td>{{ row.pixel_name or "" }}</td>
+        <td><code>{{ row.tracker_pixel_id or "" }}</code></td>
+        <td class="mono">{{ row.event_id or "" }}</td>
+        <td class="mono">{{ row.clickid or "" }}</td>
+        <td class="mono long">{{ row.fbclid or "" }}</td>
+        <td class="mono long">{{ row.fbc or "" }}</td>
+        <td>{{ row.source_domain or "" }}</td>
+        <td class="mono long">{{ row.fbtrace_id or "" }}</td>
+        <td>
+          {% if row.skipped_duplicate %}<span class="pill">duplicate skipped</span>{% endif %}
+          {% if row.events_received is not none %}<span class="pill">events {{ row.events_received }}</span>{% endif %}
+          {% if row.messages %}<div>{{ row.messages }}</div>{% endif %}
+          {% if row.error_user_title %}<strong>{{ row.error_user_title }}</strong>{% endif %}
+          {% if row.error_user_msg %}<div>{{ row.error_user_msg }}</div>{% endif %}
+          {% if row.details %}<div>{{ row.details }}</div>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

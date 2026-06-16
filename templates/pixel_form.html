@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{% if mode == "new" %}Добавить пиксель{% else %}Редактировать пиксель{% endif %}</h1>
+
+{% if created %}
+<div class="notice">
+  Пиксель создан. Конфиг для баера:
+  <pre>trackerPixelId: "{{ pixel.public_id }}"</pre>
+</div>
+{% endif %}
+
+{% if pixel %}
+<p>Public ID: <code>{{ pixel.public_id }}</code></p>
+{% endif %}
+
+<form method="post" action="{% if mode == 'new' %}/admin/pixels/new{% else %}/admin/pixels/{{ pixel.public_id }}/edit{% endif %}">
+  <div class="row">
+    <div>
+      <label>Название</label>
+      <input name="name" required value="{{ pixel.name if pixel else '' }}">
+    </div>
+    <div>
+      <label>Баер</label>
+      <input name="buyer_name" value="{{ pixel.buyer_name if pixel and pixel.buyer_name else '' }}">
+    </div>
+  </div>
+
+  <label>Meta Pixel ID</label>
+  <input name="meta_pixel_id" required value="{{ pixel.meta_pixel_id if pixel else '' }}">
+
+  <label>Meta Access Token</label>
+  {% if mode == "edit" %}
+  <p class="muted">Текущий токен: {{ masked_token }}. Оставьте поле пустым, чтобы не менять токен.</p>
+  <input name="meta_access_token" value="" placeholder="Новый токен">
+  {% else %}
+  <input name="meta_access_token" required value="">
+  {% endif %}
+
+  <label>Разрешенные домены</label>
+  <textarea name="allowed_domains" placeholder="example.com&#10;site2.com">{{ pixel.allowed_domains if pixel and pixel.allowed_domains else '' }}</textarea>
+
+  <label><input style="width:auto" type="checkbox" name="is_active" {% if not pixel or pixel.is_active %}checked{% endif %}> Активен</label>
+
+  <div class="actions">
+    <button class="btn" type="submit">Сохранить</button>
+    <a class="btn secondary" href="/admin/pixels">Назад</a>
+  </div>
+</form>
+{% endblock %}

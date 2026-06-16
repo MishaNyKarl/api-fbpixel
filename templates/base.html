@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title or "API Pixel" }}</title>
+  <style>
+    body { margin: 0; font-family: Arial, sans-serif; color: #172033; background: #f5f7fb; }
+    header { background: #111827; color: #fff; padding: 14px 24px; display: flex; gap: 18px; align-items: center; }
+    header a { color: #dbeafe; text-decoration: none; }
+    main { padding: 24px; max-width: 1680px; margin: 0 auto; }
+    table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #d7deea; }
+    th, td { padding: 10px 12px; border-bottom: 1px solid #e5eaf3; text-align: left; vertical-align: top; }
+    th { background: #eef2f7; font-size: 13px; }
+    input, textarea, select { width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid #c8d2e0; border-radius: 6px; font: inherit; background: #fff; }
+    textarea { min-height: 100px; resize: vertical; }
+    label { display: block; margin: 14px 0 6px; font-weight: 700; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    .actions { display: flex; gap: 8px; align-items: center; margin: 16px 0; flex-wrap: wrap; }
+    .btn { border: 0; border-radius: 6px; padding: 9px 13px; background: #2563eb; color: #fff; text-decoration: none; cursor: pointer; font: inherit; display: inline-block; white-space: nowrap; }
+    .btn.secondary { background: #4b5563; }
+    .btn.danger { background: #dc2626; }
+    .btn.ok { background: #15803d; }
+    .muted { color: #64748b; font-size: 13px; }
+    .notice { background: #ecfdf5; border: 1px solid #86efac; padding: 12px; border-radius: 6px; margin: 12px 0; }
+    code, pre { background: #eef2f7; border-radius: 6px; }
+    code { padding: 2px 5px; }
+    pre { padding: 12px; overflow: auto; }
+    .status-ok { color: #15803d; font-weight: 700; }
+    .status-bad { color: #dc2626; font-weight: 700; }
+    .status-warn { color: #b45309; font-weight: 700; }
+    .pill { padding: 2px 7px; border-radius: 999px; background: #e5e7eb; font-size: 12px; display: inline-block; margin: 1px 0; }
+    .filters { display: grid; grid-template-columns: 90px 120px 140px 220px 180px minmax(220px, 1fr) 150px 180px auto auto; gap: 8px; align-items: center; margin: 16px 0; }
+    .filters input, .filters select { min-width: 0; }
+    .table-wrap { overflow: auto; border: 1px solid #d7deea; background: #fff; }
+    .table-wrap table { border: 0; min-width: 1500px; }
+    .logs-table th, .logs-table td { padding: 8px 9px; font-size: 13px; }
+    .mono { font-family: Consolas, Monaco, monospace; }
+    .long { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .duplicate-row { background: #fffbeb; }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>API Pixel</strong>
+    <a href="/admin/pixels">Пиксели</a>
+    <a href="/admin/logs">Логи Meta</a>
+  </header>
+  <main>{% block content %}{% endblock %}</main>
+</body>
+</html>
