@@ -87,6 +87,19 @@ class Pixel(Base):
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class AdminUser(Base):
+    __tablename__ = "admin_users"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    username = Column(String(255), unique=True, nullable=False, index=True)
+    password_hash = Column(Text, nullable=False)
+    buyer_name = Column(String(255), nullable=True)
+    role = Column(String(32), nullable=False, default="buyer")
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 Base.metadata.create_all(bind=engine)
 
 
@@ -96,6 +109,51 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def hash_password(password: str) -> str:
+    rounds = 260_000
+    salt = secrets.token_urlsafe(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), rounds).hex()
+    return f"pbkdf2_sha256${rounds}${salt}${digest}"
+
+
+def verify_password(password: str, stored_hash: str) -> bool:
+    try:
+        algorithm, rounds_raw, salt, expected = stored_hash.split("$", 3)
+        if algorithm != "pbkdf2_sha256":
+            return False
+        rounds = int(rounds_raw)
+        digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), rounds).hex()
+        return secrets.compare_digest(digest, expected)
+    except Exception:
+        return False
+
+
+def bootstrap_admin_user():
+    if not ADMIN_PASSWORD:
+        return
+    db = SessionLocal()
+    try:
+        if db.query(AdminUser).first():
+            return
+        user = AdminUser(
+            username=ADMIN_USERNAME,
+            password_hash=hash_password(ADMIN_PASSWORD),
+            buyer_name=ADMIN_USERNAME,
+            role="admin",
+            is_active=True,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db.add(user)
+        db.commit()
+        log.info("Bootstrapped admin user from ADMIN_USERNAME")
+    finally:
+        db.close()
+
+
+bootstrap_admin_user()
 
 
 def generate_public_id() -> str:
@@ -428,18 +486,47 @@ async def parse_form(request: Request) -> Dict[str, str]:
     return {key: values[-1] if values else "" for key, values in parsed.items()}
 
 
-def require_admin(credentials: HTTPBasicCredentials = Depends(security)):
-    if not ADMIN_PASSWORD:
-        raise HTTPException(status_code=500, detail="admin_password_not_configured")
-    username_ok = secrets.compare_digest(credentials.username, ADMIN_USERNAME)
-    password_ok = secrets.compare_digest(credentials.password, ADMIN_PASSWORD)
-    if not (username_ok and password_ok):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="admin_auth_required",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-    return credentials.username
+def auth_failed():
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="admin_auth_required",
+        headers={"WWW-Authenticate": "Basic"},
+    )
+
+
+def require_user(
+    credentials: HTTPBasicCredentials = Depends(security),
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    user = db.query(AdminUser).filter(AdminUser.username == credentials.username).first()
+    if user and user.is_active and verify_password(credentials.password, user.password_hash):
+        return {
+            "username": user.username,
+            "buyer_name": user.buyer_name or user.username,
+            "role": user.role,
+            "is_admin": user.role == "admin",
+            "source": "db",
+        }
+
+    if ADMIN_PASSWORD:
+        username_ok = secrets.compare_digest(credentials.username, ADMIN_USERNAME)
+        password_ok = secrets.compare_digest(credentials.password, ADMIN_PASSWORD)
+        if username_ok and password_ok:
+            return {
+                "username": ADMIN_USERNAME,
+                "buyer_name": ADMIN_USERNAME,
+                "role": "admin",
+                "is_admin": True,
+                "source": "env",
+            }
+
+    auth_failed()
+
+
+def require_admin_user(user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    if not user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="admin_required")
+    return user
 
 
 def row_matches_filter(row: Dict[str, Any], key: str, expected: Optional[str]) -> bool:
@@ -448,32 +535,36 @@ def row_matches_filter(row: Dict[str, Any], key: str, expected: Optional[str]) -
     return str(row.get(key) or "").lower() == expected.lower()
 
 
+def normalize_role(role: Optional[str]) -> str:
+    return "admin" if role == "admin" else "buyer"
+
+
 @app.get("/healthz")
 async def healthz():
     return {"ok": True}
 
 
 @app.get("/admin/pixels", response_class=HTMLResponse)
-async def admin_pixels(request: Request, db: Session = Depends(get_db), _: str = Depends(require_admin)):
+async def admin_pixels(request: Request, db: Session = Depends(get_db), user: Dict[str, Any] = Depends(require_admin_user)):
     pixels = db.query(Pixel).order_by(Pixel.created_at.desc()).all()
     return templates.TemplateResponse(
         name="pixels_list.html",
         request=request,
-	context={"pixels": pixels, "mask_token": mask_token},
+	context={"pixels": pixels, "mask_token": mask_token, "current_user": user},
     )
 
 
 @app.get("/admin/pixels/new", response_class=HTMLResponse)
-async def admin_pixel_new(request: Request, _: str = Depends(require_admin)):
+async def admin_pixel_new(request: Request, user: Dict[str, Any] = Depends(require_admin_user)):
     return templates.TemplateResponse(
         name="pixel_form.html",
         request=request,
-	context={"pixel": None, "mode": "new", "masked_token": ""},
+	context={"pixel": None, "mode": "new", "masked_token": "", "current_user": user},
     )
 
 
 @app.post("/admin/pixels/new")
-async def admin_pixel_create(request: Request, db: Session = Depends(get_db), _: str = Depends(require_admin)):
+async def admin_pixel_create(request: Request, db: Session = Depends(get_db), _: Dict[str, Any] = Depends(require_admin_user)):
     form = await parse_form(request)
     pixel = Pixel(
         public_id=generate_unique_public_id(db),
@@ -499,7 +590,7 @@ async def admin_pixel_edit(
     request: Request,
     created: Optional[int] = Query(default=None),
     db: Session = Depends(get_db),
-    _: str = Depends(require_admin),
+    user: Dict[str, Any] = Depends(require_admin_user),
 ):
     pixel = db.query(Pixel).filter(Pixel.public_id == public_id).first()
     if not pixel:
@@ -513,6 +604,7 @@ async def admin_pixel_edit(
             "mode": "edit",
             "created": bool(created),
             "masked_token": mask_token(pixel.meta_access_token),
+            "current_user": user,
         },
     )
 
@@ -522,7 +614,7 @@ async def admin_pixel_update(
     public_id: str,
     request: Request,
     db: Session = Depends(get_db),
-    _: str = Depends(require_admin),
+    _: Dict[str, Any] = Depends(require_admin_user),
 ):
     pixel = db.query(Pixel).filter(Pixel.public_id == public_id).first()
     if not pixel:
@@ -545,7 +637,7 @@ async def admin_pixel_update(
 
 
 @app.post("/admin/pixels/{public_id}/disable")
-async def admin_pixel_disable(public_id: str, db: Session = Depends(get_db), _: str = Depends(require_admin)):
+async def admin_pixel_disable(public_id: str, db: Session = Depends(get_db), _: Dict[str, Any] = Depends(require_admin_user)):
     pixel = db.query(Pixel).filter(Pixel.public_id == public_id).first()
     if not pixel:
         raise HTTPException(status_code=404, detail="pixel_not_found")
@@ -556,7 +648,7 @@ async def admin_pixel_disable(public_id: str, db: Session = Depends(get_db), _: 
 
 
 @app.post("/admin/pixels/{public_id}/enable")
-async def admin_pixel_enable(public_id: str, db: Session = Depends(get_db), _: str = Depends(require_admin)):
+async def admin_pixel_enable(public_id: str, db: Session = Depends(get_db), _: Dict[str, Any] = Depends(require_admin_user)):
     pixel = db.query(Pixel).filter(Pixel.public_id == public_id).first()
     if not pixel:
         raise HTTPException(status_code=404, detail="pixel_not_found")
@@ -564,6 +656,122 @@ async def admin_pixel_enable(public_id: str, db: Session = Depends(get_db), _: s
     pixel.updated_at = datetime.utcnow()
     db.commit()
     return RedirectResponse("/admin/pixels", status_code=303)
+
+
+@app.get("/admin/users", response_class=HTMLResponse)
+async def admin_users(request: Request, db: Session = Depends(get_db), user: Dict[str, Any] = Depends(require_admin_user)):
+    users = db.query(AdminUser).order_by(AdminUser.username.asc()).all()
+    return templates.TemplateResponse(
+        name="users_list.html",
+        request=request,
+        context={"users": users, "current_user": user},
+    )
+
+
+@app.get("/admin/users/new", response_class=HTMLResponse)
+async def admin_user_new(request: Request, user: Dict[str, Any] = Depends(require_admin_user)):
+    return templates.TemplateResponse(
+        name="user_form.html",
+        request=request,
+        context={"managed_user": None, "mode": "new", "current_user": user},
+    )
+
+
+@app.post("/admin/users/new")
+async def admin_user_create(request: Request, db: Session = Depends(get_db), _: Dict[str, Any] = Depends(require_admin_user)):
+    form = await parse_form(request)
+    username = form.get("username", "").strip()
+    password = form.get("password", "")
+    buyer_name = form.get("buyer_name", "").strip() or username
+    role = normalize_role(form.get("role"))
+
+    if not username or not password:
+        raise HTTPException(status_code=400, detail="username_and_password_required")
+    if db.query(AdminUser).filter(AdminUser.username == username).first():
+        raise HTTPException(status_code=400, detail="username_already_exists")
+
+    managed_user = AdminUser(
+        username=username,
+        password_hash=hash_password(password),
+        buyer_name=buyer_name,
+        role=role,
+        is_active=form.get("is_active") == "on",
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    db.add(managed_user)
+    db.commit()
+    return RedirectResponse("/admin/users", status_code=303)
+
+
+@app.get("/admin/users/{username}/edit", response_class=HTMLResponse)
+async def admin_user_edit(
+    username: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: Dict[str, Any] = Depends(require_admin_user),
+):
+    managed_user = db.query(AdminUser).filter(AdminUser.username == username).first()
+    if not managed_user:
+        raise HTTPException(status_code=404, detail="user_not_found")
+    return templates.TemplateResponse(
+        name="user_form.html",
+        request=request,
+        context={"managed_user": managed_user, "mode": "edit", "current_user": user},
+    )
+
+
+@app.post("/admin/users/{username}/edit")
+async def admin_user_update(
+    username: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    _: Dict[str, Any] = Depends(require_admin_user),
+):
+    managed_user = db.query(AdminUser).filter(AdminUser.username == username).first()
+    if not managed_user:
+        raise HTTPException(status_code=404, detail="user_not_found")
+
+    form = await parse_form(request)
+    new_username = form.get("username", "").strip()
+    if not new_username:
+        raise HTTPException(status_code=400, detail="username_required")
+    existing = db.query(AdminUser).filter(AdminUser.username == new_username, AdminUser.id != managed_user.id).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="username_already_exists")
+
+    managed_user.username = new_username
+    managed_user.buyer_name = form.get("buyer_name", "").strip() or new_username
+    managed_user.role = normalize_role(form.get("role"))
+    managed_user.is_active = form.get("is_active") == "on"
+    new_password = form.get("password", "")
+    if new_password:
+        managed_user.password_hash = hash_password(new_password)
+    managed_user.updated_at = datetime.utcnow()
+    db.commit()
+    return RedirectResponse("/admin/users", status_code=303)
+
+
+@app.post("/admin/users/{username}/disable")
+async def admin_user_disable(username: str, db: Session = Depends(get_db), _: Dict[str, Any] = Depends(require_admin_user)):
+    managed_user = db.query(AdminUser).filter(AdminUser.username == username).first()
+    if not managed_user:
+        raise HTTPException(status_code=404, detail="user_not_found")
+    managed_user.is_active = False
+    managed_user.updated_at = datetime.utcnow()
+    db.commit()
+    return RedirectResponse("/admin/users", status_code=303)
+
+
+@app.post("/admin/users/{username}/enable")
+async def admin_user_enable(username: str, db: Session = Depends(get_db), _: Dict[str, Any] = Depends(require_admin_user)):
+    managed_user = db.query(AdminUser).filter(AdminUser.username == username).first()
+    if not managed_user:
+        raise HTTPException(status_code=404, detail="user_not_found")
+    managed_user.is_active = True
+    managed_user.updated_at = datetime.utcnow()
+    db.commit()
+    return RedirectResponse("/admin/users", status_code=303)
 
 
 @app.get("/admin/logs", response_class=HTMLResponse)
@@ -577,12 +785,14 @@ async def admin_logs(
     clickid: Optional[str] = Query(default=None),
     fbclid: Optional[str] = Query(default=None),
     domain: Optional[str] = Query(default=None),
-    user: str = Depends(require_admin),
+    user: Dict[str, Any] = Depends(require_user),
 ):
     logs = load_all_meta_logs()
     selected_buyer = buyer or "mine"
-    if selected_buyer == "mine":
-        selected_buyer = user
+    if not user.get("is_admin"):
+        selected_buyer = user["buyer_name"]
+    elif selected_buyer == "mine":
+        selected_buyer = user["buyer_name"]
 
     if status_filter:
         logs = [row for row in logs if str(row.get("status_code", "")) == status_filter]

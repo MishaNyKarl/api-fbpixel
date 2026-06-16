@@ -91,6 +91,30 @@ def main_test():
         assert admin.status_code == 200, admin.text
         assert "px_test" in admin.text
 
+        users = client.get("/admin/users", auth=("admin", "admin"))
+        assert users.status_code == 200, users.text
+        assert "admin" in users.text
+
+        created_user = client.post(
+            "/admin/users/new",
+            data={
+                "username": "buyer1",
+                "password": "buyer-pass",
+                "buyer_name": "admin",
+                "role": "buyer",
+                "is_active": "on",
+            },
+            auth=("admin", "admin"),
+            follow_redirects=False,
+        )
+        assert created_user.status_code == 303, created_user.text
+
+        buyer_logs = client.get("/admin/logs", auth=("buyer1", "buyer-pass"))
+        assert buyer_logs.status_code == 200, buyer_logs.text
+
+        buyer_users = client.get("/admin/users", auth=("buyer1", "buyer-pass"))
+        assert buyer_users.status_code == 403, buyer_users.text
+
         payload = {
             "tracker_pixel_id": "px_test",
             "event_name": "Lead",

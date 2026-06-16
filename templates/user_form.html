@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{% if mode == "new" %}Добавить пользователя{% else %}Редактировать пользователя{% endif %}</h1>
+
+<form method="post" action="{% if mode == 'new' %}/admin/users/new{% else %}/admin/users/{{ managed_user.username }}/edit{% endif %}">
+  <div class="row">
+    <div>
+      <label>Логин</label>
+      <input name="username" required value="{{ managed_user.username if managed_user else '' }}">
+    </div>
+    <div>
+      <label>Buyer name</label>
+      <input name="buyer_name" value="{{ managed_user.buyer_name if managed_user and managed_user.buyer_name else '' }}" placeholder="Например Andrey">
+      <p class="muted">Должен совпадать с buyer_name в пикселях/логах, чтобы пользователь видел свою статистику.</p>
+    </div>
+  </div>
+
+  <div class="row">
+    <div>
+      <label>Роль</label>
+      <select name="role">
+        <option value="buyer" {% if not managed_user or managed_user.role == "buyer" %}selected{% endif %}>buyer</option>
+        <option value="admin" {% if managed_user and managed_user.role == "admin" %}selected{% endif %}>admin</option>
+      </select>
+    </div>
+    <div>
+      <label>Пароль</label>
+      <input name="password" type="password" {% if mode == "new" %}required{% endif %} placeholder="{% if mode == 'new' %}Пароль{% else %}Новый пароль, если нужно поменять{% endif %}">
+    </div>
+  </div>
+
+  <label><input style="width:auto" type="checkbox" name="is_active" {% if not managed_user or managed_user.is_active %}checked{% endif %}> Активен</label>
+
+  <div class="actions">
+    <button class="btn" type="submit">Сохранить</button>
+    <a class="btn secondary" href="/admin/users">Назад</a>
+  </div>
+</form>
+{% endblock %}

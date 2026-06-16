@@ -81,13 +81,23 @@ Admin pages are protected by HTTP Basic Auth:
 - pixels: `/admin/pixels`
 - new pixel: `/admin/pixels/new`
 - logs: `/admin/logs`
+- users: `/admin/users`
 
-Credentials come from:
+There are two user roles:
+
+- `admin` - can manage pixels, users, and view all logs.
+- `buyer` - can view logs only for their own `buyer_name`.
+
+On first startup, if the `admin_users` table is empty, the service creates a bootstrap admin from:
 
 ```env
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=...
 ```
+
+After that, create real users in `/admin/users`. Passwords are stored as PBKDF2 hashes, not plaintext.
+
+For buyer users, set `buyer_name` to the same value used in pixel configs and logs, for example `Andrey`. This is what drives default log filtering.
 
 Pixel fields:
 
@@ -147,8 +157,9 @@ Important columns:
 Filtering behavior:
 
 - `limit=300&event=Lead` returns up to 300 Lead rows after filtering.
-- `buyer=mine` filters by `buyer_name == ADMIN_USERNAME`.
-- `buyer=__all__` shows all buyers.
+- for `buyer` users, logs are always restricted to their own `buyer_name`.
+- for `admin` users, `buyer=mine` filters by the admin user's `buyer_name`.
+- for `admin` users, `buyer=__all__` shows all buyers.
 - filters are available for status, event, tracker pixel, buyer, clickid, fbclid, and domain.
 
 ## Deduplication
@@ -194,6 +205,8 @@ STRICT_DOMAIN_CHECK=false
 CORS_ALLOW_ORIGINS=*
 DEDUP_TTL_SECONDS=600
 ```
+
+`ADMIN_USERNAME` and `ADMIN_PASSWORD` are used for bootstrap only when the DB has no users yet. Keep them valid as an emergency fallback, but manage normal access through `/admin/users`.
 
 Legacy variables can stay for compatibility, but new multi-pixel routing should use DB pixel configs:
 
@@ -299,6 +312,7 @@ From the last production inspection:
 - Nginx proxies `api.naturalgoods.info` to `http://127.0.0.1:8080`
 - `sqlite3` CLI was not installed on the server
 - Redis is required for fingerprints, logs, and deduplication
+- user accounts are stored in SQLite table `admin_users`
 
 Useful diagnostics:
 

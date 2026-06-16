@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Пользователи</h1>
+
+<div class="actions">
+  <a class="btn" href="/admin/users/new">Добавить пользователя</a>
+  <a class="btn secondary" href="/admin/pixels">Пиксели</a>
+  <a class="btn secondary" href="/admin/logs">Логи</a>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>username</th>
+      <th>buyer_name</th>
+      <th>role</th>
+      <th>active</th>
+      <th>created</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in users %}
+    <tr>
+      <td><code>{{ item.username }}</code></td>
+      <td>{{ item.buyer_name or "" }}</td>
+      <td>{{ item.role }}</td>
+      <td>{% if item.is_active %}<span class="status-ok">yes</span>{% else %}<span class="status-bad">no</span>{% endif %}</td>
+      <td>{{ item.created_at }}</td>
+      <td>
+        <div class="actions">
+          <a class="btn secondary" href="/admin/users/{{ item.username }}/edit">Редактировать</a>
+          {% if item.is_active %}
+          <form method="post" action="/admin/users/{{ item.username }}/disable"><button class="btn danger">Выключить</button></form>
+          {% else %}
+          <form method="post" action="/admin/users/{{ item.username }}/enable"><button class="btn ok">Включить</button></form>
+          {% endif %}
+        </div>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

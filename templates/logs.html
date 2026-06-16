@@ -5,7 +5,7 @@
 <p class="muted">
   Показано {{ logs|length }} из {{ total_filtered }} после фильтрации.
   fbtrace - служебный trace id ответа Meta, для клика смотрите fbclid/fbc.
-  Текущий пользователь: {{ current_user }}.
+  Пользователь: {{ current_user.username }}; роль: {{ current_user.role }}; buyer: {{ current_user.buyer_name }}.
 </p>
 
 <form method="get" action="/admin/logs" class="filters">
@@ -16,13 +16,17 @@
   <input name="clickid" value="{{ clickid }}" placeholder="clickid">
   <input name="fbclid" value="{{ fbclid }}" placeholder="fbclid">
   <input name="domain" value="{{ domain }}" placeholder="domain">
+  {% if current_user.is_admin %}
   <select name="buyer">
-    <option value="mine" {% if buyer == "mine" %}selected{% endif %}>Мои: {{ current_user }}</option>
+    <option value="mine" {% if buyer == "mine" %}selected{% endif %}>Мои: {{ current_user.buyer_name }}</option>
     <option value="__all__" {% if buyer == "__all__" %}selected{% endif %}>Все баеры</option>
     {% for item in buyers %}
     <option value="{{ item }}" {% if buyer == item or resolved_buyer == item %}selected{% endif %}>{{ item }}</option>
     {% endfor %}
   </select>
+  {% else %}
+  <input value="Мои: {{ current_user.buyer_name }}" disabled>
+  {% endif %}
   <button class="btn">Фильтр</button>
   <a class="btn secondary" href="/admin/logs">Сбросить</a>
 </form>
