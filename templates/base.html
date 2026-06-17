@@ -31,7 +31,9 @@
     .status-bad { color: #dc2626; font-weight: 700; }
     .status-warn { color: #b45309; font-weight: 700; }
     .pill { padding: 2px 7px; border-radius: 999px; background: #e5e7eb; font-size: 12px; display: inline-block; margin: 1px 0; }
-    .filters { display: grid; grid-template-columns: 90px 120px 140px 220px 180px minmax(220px, 1fr) 150px 180px auto auto; gap: 8px; align-items: center; margin: 16px 0; }
+    .filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; align-items: center; margin: 16px 0; }
+    .filters .wide { grid-column: span 2; }
+    .quick-filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0 16px; }
     .filters input, .filters select { min-width: 0; }
     .table-wrap { overflow: auto; border: 1px solid #d7deea; background: #fff; }
     .table-wrap table { border: 0; min-width: 1500px; }

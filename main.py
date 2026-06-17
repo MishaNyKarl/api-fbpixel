@@ -4,9 +4,10 @@ import logging
 import os
 import secrets
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional, Set
 from urllib.parse import parse_qs, urlparse
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 import redis
@@ -38,10 +39,34 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 STRICT_DOMAIN_CHECK = os.getenv("STRICT_DOMAIN_CHECK", "false").lower() in {"1", "true", "yes", "on"}
 CORS_ALLOW_ORIGINS = os.getenv("CORS_ALLOW_ORIGINS", "*")
 DEDUP_TTL_SECONDS = int(os.getenv("DEDUP_TTL_SECONDS", "600"))
+APP_TIMEZONE = os.getenv("APP_TIMEZONE", "Europe/Moscow")
 
 META_LOG_KEY = "log:meta"
 META_LOG_MAX = 500
 CLICK_TTL = 60 * 60 * 24 * 11
+
+try:
+    APP_TZ = ZoneInfo(APP_TIMEZONE)
+except ZoneInfoNotFoundError:
+    if APP_TIMEZONE == "Europe/Moscow":
+        log.warning("System timezone Europe/Moscow is unavailable, falling back to fixed MSK UTC+3")
+        APP_TZ = timezone(timedelta(hours=3), "MSK")
+    else:
+        log.warning("Unknown APP_TIMEZONE=%s, falling back to UTC", APP_TIMEZONE)
+        APP_TIMEZONE = "UTC"
+        APP_TZ = timezone.utc
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def app_now() -> datetime:
+    return utc_now().astimezone(APP_TZ)
+
+
+def naive_app_now() -> datetime:
+    return app_now().replace(tzinfo=None)
 
 
 app = FastAPI(title="API Pixel MVP (Multi Pixel CAPI + Lemonad)")
@@ -83,8 +108,8 @@ class Pixel(Base):
     meta_access_token = Column(Text, nullable=False)
     allowed_domains = Column(Text, nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=naive_app_now)
+    updated_at = Column(DateTime, nullable=False, default=naive_app_now, onupdate=naive_app_now)
 
 
 class AdminUser(Base):
@@ -96,12 +121,48 @@ class AdminUser(Base):
     buyer_name = Column(String(255), nullable=True)
     role = Column(String(32), nullable=False, default="buyer")
     is_active = Column(Boolean, nullable=False, default=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=naive_app_now)
+    updated_at = Column(DateTime, nullable=False, default=naive_app_now, onupdate=naive_app_now)
 
 
 Base.metadata.create_all(bind=engine)
 
+
+def format_app_datetime(value: datetime) -> str:
+    return value.astimezone(APP_TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
+
+
+def format_app_timestamp(ts: Optional[int]) -> str:
+    if not ts:
+        return ""
+    return format_app_datetime(datetime.fromtimestamp(int(ts), timezone.utc))
+
+
+def app_date_bounds(date_from: Optional[str], date_to: Optional[str]) -> tuple[Optional[int], Optional[int]]:
+    if not date_from and not date_to:
+        return None, None
+
+    start_ts = None
+    end_ts = None
+    try:
+        if date_from:
+            start_dt = datetime.fromisoformat(date_from).replace(tzinfo=APP_TZ)
+            start_ts = int(start_dt.astimezone(timezone.utc).timestamp())
+        if date_to:
+            end_dt = datetime.fromisoformat(date_to).replace(tzinfo=APP_TZ) + timedelta(days=1)
+            end_ts = int(end_dt.astimezone(timezone.utc).timestamp())
+    except ValueError:
+        return None, None
+    return start_ts, end_ts
+
+
+def app_date_shortcuts() -> Dict[str, str]:
+    today = app_now().date()
+    return {
+        "today": today.isoformat(),
+        "yesterday": (today - timedelta(days=1)).isoformat(),
+        "week": (today - timedelta(days=6)).isoformat(),
+    }
 
 def get_db():
     db = SessionLocal()
@@ -143,8 +204,8 @@ def bootstrap_admin_user():
             buyer_name=ADMIN_USERNAME,
             role="admin",
             is_active=True,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=naive_app_now(),
+            updated_at=naive_app_now(),
         )
         db.add(user)
         db.commit()
@@ -219,7 +280,8 @@ def load_fp(clickid: str) -> Dict[str, Any]:
 
 def log_meta_to_redis(entry: Dict[str, Any]):
     try:
-        entry["_ts"] = int(time.time())
+        entry.setdefault("_ts", int(time.time()))
+        entry.setdefault("when", format_app_timestamp(entry.get("_ts")))
         rds.lpush(META_LOG_KEY, json.dumps(entry, ensure_ascii=False))
         rds.ltrim(META_LOG_KEY, 0, META_LOG_MAX - 1)
     except Exception as e:
@@ -231,7 +293,10 @@ def load_meta_logs(limit: int = 100):
     result = []
     for row in rows:
         try:
-            result.append(json.loads(row))
+            parsed = json.loads(row)
+            if isinstance(parsed, dict) and parsed.get("_ts"):
+                parsed["when"] = format_app_timestamp(parsed.get("_ts"))
+            result.append(parsed)
         except Exception:
             result.append({"raw": row})
     return result
@@ -271,7 +336,6 @@ def log_duplicate_event(pixel: Pixel, event_name: str, event_id: str, context: D
         context.get("fbclid"),
     )
     log_meta_to_redis({
-        "when": datetime.utcnow().isoformat() + "Z",
         "tracker_pixel_id": pixel.public_id,
         "buyer_name": pixel.buyer_name,
         "pixel_name": pixel.name,
@@ -286,6 +350,45 @@ def log_duplicate_event(pixel: Pixel, event_name: str, event_id: str, context: D
         "source_domain": extract_domain_from_url(context.get("event_source_url")),
         "skipped_duplicate": True,
         "details": "duplicate_event_id_skipped",
+    })
+
+
+def log_rejected_event(
+    *,
+    event_name: Optional[str],
+    tracker_pixel_id: Optional[str],
+    status_code: int,
+    reason: str,
+    context: Dict[str, Any],
+    pixel: Optional[Pixel] = None,
+    event_id: Optional[str] = None,
+    details: Optional[str] = None,
+):
+    log.warning(
+        "Meta event rejected before send: tracker_pixel_id=%s buyer=%s pixel_name=%s name=%s id=%s clickid=%s reason=%s",
+        tracker_pixel_id,
+        pixel.buyer_name if pixel else None,
+        pixel.name if pixel else None,
+        event_name,
+        event_id,
+        context.get("clickid"),
+        reason,
+    )
+    log_meta_to_redis({
+        "tracker_pixel_id": tracker_pixel_id,
+        "buyer_name": pixel.buyer_name if pixel else None,
+        "pixel_name": pixel.name if pixel else None,
+        "status_code": status_code,
+        "event_name": event_name,
+        "event_id": event_id,
+        "clickid": context.get("clickid"),
+        "fbclid": context.get("fbclid"),
+        "fbp": context.get("fbp"),
+        "fbc": context.get("fbc"),
+        "event_source_url": context.get("event_source_url"),
+        "source_domain": extract_domain_from_url(context.get("event_source_url")),
+        "rejected": True,
+        "details": details or reason,
     })
 
 
@@ -424,8 +527,40 @@ async def send_to_meta(
     if META_TEST_EVENT_CODE:
         payload["test_event_code"] = META_TEST_EVENT_CODE
 
-    async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.post(url, json=payload)
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(url, json=payload)
+    except Exception as e:
+        tracker_pixel_id = pixel.public_id if pixel else None
+        buyer_name = pixel.buyer_name if pixel else None
+        pixel_name = pixel.name if pixel else None
+        context = context or {}
+        log.exception(
+            "Meta CAPI send failed: tracker_pixel_id=%s buyer=%s pixel_name=%s name=%s id=%s clickid=%s",
+            tracker_pixel_id,
+            buyer_name,
+            pixel_name,
+            event.get("event_name"),
+            event.get("event_id"),
+            context.get("clickid"),
+        )
+        log_meta_to_redis({
+            "tracker_pixel_id": tracker_pixel_id,
+            "buyer_name": buyer_name,
+            "pixel_name": pixel_name,
+            "status_code": 0,
+            "event_name": event.get("event_name"),
+            "event_id": event.get("event_id"),
+            "clickid": context.get("clickid"),
+            "fbclid": context.get("fbclid"),
+            "fbp": context.get("fbp"),
+            "fbc": context.get("fbc"),
+            "event_source_url": context.get("event_source_url") or event.get("event_source_url"),
+            "source_domain": extract_domain_from_url(context.get("event_source_url") or event.get("event_source_url")),
+            "send_failed": True,
+            "details": f"meta_send_failed: {e}",
+        })
+        raise HTTPException(status_code=502, detail="meta_send_failed")
 
     try:
         parsed = resp.json()
@@ -456,7 +591,6 @@ async def send_to_meta(
     )
 
     log_meta_to_redis({
-        "when": datetime.utcnow().isoformat() + "Z",
         "tracker_pixel_id": tracker_pixel_id,
         "buyer_name": buyer_name,
         "pixel_name": pixel_name,
@@ -574,8 +708,8 @@ async def admin_pixel_create(request: Request, db: Session = Depends(get_db), _:
         meta_access_token=form.get("meta_access_token", "").strip(),
         allowed_domains=form.get("allowed_domains", "").strip() or None,
         is_active=form.get("is_active") == "on",
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow(),
+        created_at=naive_app_now(),
+        updated_at=naive_app_now(),
     )
     if not pixel.name or not pixel.meta_pixel_id or not pixel.meta_access_token:
         raise HTTPException(status_code=400, detail="name_pixel_id_and_token_required")
@@ -629,7 +763,7 @@ async def admin_pixel_update(
         pixel.meta_access_token = new_token
     pixel.allowed_domains = form.get("allowed_domains", "").strip() or None
     pixel.is_active = form.get("is_active") == "on"
-    pixel.updated_at = datetime.utcnow()
+    pixel.updated_at = naive_app_now()
     if not pixel.name or not pixel.meta_pixel_id or not pixel.meta_access_token:
         raise HTTPException(status_code=400, detail="name_pixel_id_and_token_required")
     db.commit()
@@ -642,7 +776,7 @@ async def admin_pixel_disable(public_id: str, db: Session = Depends(get_db), _: 
     if not pixel:
         raise HTTPException(status_code=404, detail="pixel_not_found")
     pixel.is_active = False
-    pixel.updated_at = datetime.utcnow()
+    pixel.updated_at = naive_app_now()
     db.commit()
     return RedirectResponse("/admin/pixels", status_code=303)
 
@@ -653,7 +787,7 @@ async def admin_pixel_enable(public_id: str, db: Session = Depends(get_db), _: D
     if not pixel:
         raise HTTPException(status_code=404, detail="pixel_not_found")
     pixel.is_active = True
-    pixel.updated_at = datetime.utcnow()
+    pixel.updated_at = naive_app_now()
     db.commit()
     return RedirectResponse("/admin/pixels", status_code=303)
 
@@ -696,8 +830,8 @@ async def admin_user_create(request: Request, db: Session = Depends(get_db), _: 
         buyer_name=buyer_name,
         role=role,
         is_active=form.get("is_active") == "on",
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow(),
+        created_at=naive_app_now(),
+        updated_at=naive_app_now(),
     )
     db.add(managed_user)
     db.commit()
@@ -747,7 +881,7 @@ async def admin_user_update(
     new_password = form.get("password", "")
     if new_password:
         managed_user.password_hash = hash_password(new_password)
-    managed_user.updated_at = datetime.utcnow()
+    managed_user.updated_at = naive_app_now()
     db.commit()
     return RedirectResponse("/admin/users", status_code=303)
 
@@ -758,7 +892,7 @@ async def admin_user_disable(username: str, db: Session = Depends(get_db), _: Di
     if not managed_user:
         raise HTTPException(status_code=404, detail="user_not_found")
     managed_user.is_active = False
-    managed_user.updated_at = datetime.utcnow()
+    managed_user.updated_at = naive_app_now()
     db.commit()
     return RedirectResponse("/admin/users", status_code=303)
 
@@ -769,7 +903,7 @@ async def admin_user_enable(username: str, db: Session = Depends(get_db), _: Dic
     if not managed_user:
         raise HTTPException(status_code=404, detail="user_not_found")
     managed_user.is_active = True
-    managed_user.updated_at = datetime.utcnow()
+    managed_user.updated_at = naive_app_now()
     db.commit()
     return RedirectResponse("/admin/users", status_code=303)
 
@@ -778,6 +912,8 @@ async def admin_user_enable(username: str, db: Session = Depends(get_db), _: Dic
 async def admin_logs(
     request: Request,
     limit: int = Query(default=100, ge=1, le=META_LOG_MAX),
+    date_from: Optional[str] = Query(default=None),
+    date_to: Optional[str] = Query(default=None),
     status_filter: Optional[str] = Query(default=None, alias="status"),
     event: Optional[str] = Query(default=None),
     tracker_pixel_id: Optional[str] = Query(default=None),
@@ -794,6 +930,11 @@ async def admin_logs(
     elif selected_buyer == "mine":
         selected_buyer = user["buyer_name"]
 
+    start_ts, end_ts = app_date_bounds(date_from, date_to)
+    if start_ts is not None:
+        logs = [row for row in logs if int(row.get("_ts") or 0) >= start_ts]
+    if end_ts is not None:
+        logs = [row for row in logs if int(row.get("_ts") or 0) < end_ts]
     if status_filter:
         logs = [row for row in logs if str(row.get("status_code", "")) == status_filter]
     if event:
@@ -812,6 +953,7 @@ async def admin_logs(
     logs = logs[:limit]
 
     buyers = sorted({row.get("buyer_name") for row in load_all_meta_logs() if row.get("buyer_name")})
+    date_shortcuts = app_date_shortcuts()
     return templates.TemplateResponse(
         name="logs.html",
         request=request,
@@ -820,6 +962,12 @@ async def admin_logs(
             "logs": logs,
             "limit": limit,
             "total_filtered": total_filtered,
+            "date_from": date_from or "",
+            "date_to": date_to or "",
+            "today_date": date_shortcuts["today"],
+            "yesterday_date": date_shortcuts["yesterday"],
+            "week_date": date_shortcuts["week"],
+            "app_timezone": APP_TIMEZONE,
             "status_filter": status_filter or "",
             "event": event or "",
             "tracker_pixel_id": tracker_pixel_id or "",
@@ -841,17 +989,46 @@ async def track(
     x_api_key: str = Header(default=""),
     db: Session = Depends(get_db),
 ):
+    fbc = ev.fbc or make_fbc_from_fbclid(ev.fbclid)
+    event_id = build_event_id(ev.clickid, ev.event_name, ev.order_id)
+    context = {
+        "clickid": ev.clickid,
+        "fbclid": ev.fbclid,
+        "fbp": ev.fbp,
+        "fbc": fbc,
+        "event_source_url": ev.event_source_url,
+    }
     if API_PUBLIC_KEY and x_api_key != API_PUBLIC_KEY:
+        log_rejected_event(
+            event_name=ev.event_name,
+            tracker_pixel_id=ev.tracker_pixel_id,
+            status_code=401,
+            reason="unauthorized",
+            context=context,
+            event_id=event_id,
+        )
         raise HTTPException(status_code=401, detail="unauthorized")
 
-    pixel = get_pixel_by_public_id(ev.tracker_pixel_id, db)
-    ensure_domain_allowed(pixel, ev.event_source_url)
+    pixel = None
+    try:
+        pixel = get_pixel_by_public_id(ev.tracker_pixel_id, db)
+        ensure_domain_allowed(pixel, ev.event_source_url)
+    except HTTPException as exc:
+        log_rejected_event(
+            event_name=ev.event_name,
+            tracker_pixel_id=ev.tracker_pixel_id,
+            status_code=exc.status_code,
+            reason=str(exc.detail),
+            context=context,
+            pixel=pixel,
+            event_id=event_id,
+        )
+        raise
 
     now = int(time.time())
     event_time = ev.event_time or now
     ua = ev.ua or request.headers.get("user-agent", "")
     ip = get_client_ip(request, ev.ip)
-    fbc = ev.fbc or make_fbc_from_fbclid(ev.fbclid)
 
     em_hash = ph_hash = None
     if ev.user_data_raw:
@@ -861,14 +1038,6 @@ async def track(
             ph_hash = sha256_norm_phone(ev.user_data_raw["phone"])
 
     cache_fp(ev.clickid, pixel.public_id, ev.fbclid, ev.fbp, fbc, ip, ua, em_hash, ph_hash)
-    event_id = build_event_id(ev.clickid, ev.event_name, ev.order_id)
-    context = {
-        "clickid": ev.clickid,
-        "fbclid": ev.fbclid,
-        "fbp": ev.fbp,
-        "fbc": fbc,
-        "event_source_url": ev.event_source_url,
-    }
 
     if not mark_event_for_send(pixel.public_id, ev.event_name, event_id):
         log_duplicate_event(pixel, ev.event_name, event_id, context)
@@ -921,6 +1090,14 @@ async def lemonad_postback(
     tracker_pixel_id: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
 ):
+    context = {
+        "clickid": clickid,
+        "fbclid": None,
+        "fbp": None,
+        "fbc": None,
+        "event_source_url": None,
+    }
+    event_id = build_event_id(clickid, "Purchase", None)
     if status.lower() != "sale":
         return {"ok": True, "accepted": False, "reason": "status_ignored", "status": status}
 
@@ -935,17 +1112,43 @@ async def lemonad_postback(
     fp = load_fp(clickid)
     if not fp:
         log.warning("No fingerprint in Redis for clickid=%s; Purchase will have weak matching", clickid)
+    else:
+        context.update({
+            "fbclid": fp.get("fbclid"),
+            "fbp": fp.get("fbp"),
+            "fbc": fp.get("fbc"),
+        })
 
     resolved_tracker_pixel_id = tracker_pixel_id or fp.get("tracker_pixel_id")
     if not resolved_tracker_pixel_id:
+        log_rejected_event(
+            event_name="Purchase",
+            tracker_pixel_id=tracker_pixel_id,
+            status_code=422,
+            reason="tracker_pixel_id_not_found",
+            context=context,
+            event_id=event_id,
+            details="postback_without_tracker_pixel_id_or_click_fingerprint",
+        )
         return {"ok": False, "accepted": False, "reason": "tracker_pixel_id_not_found"}
 
-    pixel = get_pixel_by_public_id(resolved_tracker_pixel_id, db)
+    try:
+        pixel = get_pixel_by_public_id(resolved_tracker_pixel_id, db)
+    except HTTPException as exc:
+        log_rejected_event(
+            event_name="Purchase",
+            tracker_pixel_id=resolved_tracker_pixel_id,
+            status_code=exc.status_code,
+            reason=str(exc.detail),
+            context=context,
+            event_id=event_id,
+            details="postback_pixel_resolution_failed",
+        )
+        raise
     user_data = dict(fp)
     user_data.pop("tracker_pixel_id", None)
     user_data.pop("fbclid", None)
 
-    event_id = build_event_id(clickid, "Purchase", None)
     context = {
         "clickid": clickid,
         "fbclid": fp.get("fbclid"),

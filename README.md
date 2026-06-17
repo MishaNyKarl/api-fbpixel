@@ -153,6 +153,10 @@ Important columns:
 - `fbc` - Meta click cookie format derived from `fbclid`
 - `fbtrace` - Meta response trace id; useful for debugging Meta API responses, not a click id
 - `dup` - duplicate event skipped by server
+- `rejected before Meta` - request was received but rejected before Meta send, for example bad pixel id, disabled pixel, strict domain block, or missing postback fingerprint
+- `Meta send failed` - request was accepted by the service but the outbound Meta API call failed
+
+Log time is displayed and date-filtered in the configured application timezone, `APP_TIMEZONE=Europe/Moscow` by default.
 
 Filtering behavior:
 
@@ -161,6 +165,7 @@ Filtering behavior:
 - for `admin` users, `buyer=mine` filters by the admin user's `buyer_name`.
 - for `admin` users, `buyer=__all__` shows all buyers.
 - filters are available for status, event, tracker pixel, buyer, clickid, fbclid, and domain.
+- date filters use Moscow dates by default and support exact day/range filtering.
 
 ## Deduplication
 
@@ -174,6 +179,7 @@ Default TTL:
 
 ```env
 DEDUP_TTL_SECONDS=600
+APP_TIMEZONE=Europe/Moscow
 ```
 
 If the same event repeats during this window, the service returns:
@@ -280,7 +286,7 @@ When copying files manually, copy source files only. Do not overwrite:
 Workflows:
 
 - `.github/workflows/ci.yml` - runs compile and smoke test on push/PR.
-- `.github/workflows/deploy.yml` - manual deploy via GitHub Actions.
+- `.github/workflows/deploy.yml` - deploys automatically on push to `main` and can also be started manually.
 
 GitHub repository secrets for deploy:
 
@@ -302,7 +308,7 @@ The deploy workflow:
 7. Installs locked dependencies.
 8. Restarts `api-pixel`.
 
-Current workflow is manual (`workflow_dispatch`) by design. After one or two successful manual deploys, it can be changed to deploy automatically on push to `main`.
+The deploy workflow is expected to run after every push to `main`; check GitHub Actions after pushing.
 
 ## Server Notes
 

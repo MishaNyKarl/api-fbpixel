@@ -140,6 +140,32 @@ def main_test():
         assert duplicate.status_code == 200, duplicate.text
         assert duplicate.json()["duplicate"] is True
 
+        rejected_payload = dict(payload)
+        rejected_payload["tracker_pixel_id"] = "px_missing"
+        rejected_payload["clickid"] = "smoke_missing_pixel"
+        rejected = client.post(
+            "/api/pixel/track",
+            json=rejected_payload,
+            headers={"x-api-key": "test-api-key"},
+        )
+        assert rejected.status_code == 400, rejected.text
+
+        rejected_logs = client.get(
+            "/admin/logs?buyer=__all__&clickid=smoke_missing_pixel",
+            auth=("admin", "admin"),
+        )
+        assert rejected_logs.status_code == 200, rejected_logs.text
+        assert "smoke_missing_pixel" in rejected_logs.text
+        assert "rejected before Meta" in rejected_logs.text
+
+        today = main.app_now().date().isoformat()
+        dated_logs = client.get(
+            f"/admin/logs?buyer=__all__&date_from={today}&date_to={today}&clickid=smoke_missing_pixel",
+            auth=("admin", "admin"),
+        )
+        assert dated_logs.status_code == 200, dated_logs.text
+        assert "smoke_missing_pixel" in dated_logs.text
+
         print("smoke ok")
     finally:
         main.engine.dispose()

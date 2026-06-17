@@ -4,15 +4,18 @@
 
 <p class="muted">
   Показано {{ logs|length }} из {{ total_filtered }} после фильтрации.
+  Время показано в зоне {{ app_timezone }}.
   fbtrace - служебный trace id ответа Meta, для клика смотрите fbclid/fbc.
   Пользователь: {{ current_user.username }}; роль: {{ current_user.role }}; buyer: {{ current_user.buyer_name }}.
 </p>
 
 <form method="get" action="/admin/logs" class="filters">
   <input name="limit" value="{{ limit }}" placeholder="limit">
+  <input type="date" name="date_from" value="{{ date_from }}" title="Дата с">
+  <input type="date" name="date_to" value="{{ date_to }}" title="Дата по">
   <input name="status" value="{{ status_filter }}" placeholder="status">
   <input name="event" value="{{ event }}" placeholder="event">
-  <input name="tracker_pixel_id" value="{{ tracker_pixel_id }}" placeholder="tracker_pixel_id">
+  <input class="wide" name="tracker_pixel_id" value="{{ tracker_pixel_id }}" placeholder="tracker_pixel_id">
   <input name="clickid" value="{{ clickid }}" placeholder="clickid">
   <input name="fbclid" value="{{ fbclid }}" placeholder="fbclid">
   <input name="domain" value="{{ domain }}" placeholder="domain">
@@ -30,6 +33,12 @@
   <button class="btn">Фильтр</button>
   <a class="btn secondary" href="/admin/logs">Сбросить</a>
 </form>
+
+<div class="quick-filters">
+  <a class="btn secondary" href="/admin/logs?date_from={{ today_date }}&date_to={{ today_date }}&buyer={{ buyer }}">Сегодня</a>
+  <a class="btn secondary" href="/admin/logs?date_from={{ yesterday_date }}&date_to={{ yesterday_date }}&buyer={{ buyer }}">Вчера</a>
+  <a class="btn secondary" href="/admin/logs?date_from={{ week_date }}&date_to={{ today_date }}&buyer={{ buyer }}">7 дней</a>
+</div>
 
 <div class="table-wrap">
   <table class="logs-table">
@@ -57,10 +66,10 @@
         <td>
           {% if row.skipped_duplicate %}
           <span class="status-warn">dup</span>
-          {% elif row.status_code and row.status_code < 300 %}
+          {% elif row.status_code is not none and row.status_code < 300 and row.status_code > 0 %}
           <span class="status-ok">{{ row.status_code }}</span>
           {% else %}
-          <span class="status-bad">{{ row.status_code or "" }}</span>
+          <span class="status-bad">{{ row.status_code if row.status_code is not none else "" }}</span>
           {% endif %}
         </td>
         <td>{{ row.event_name or "" }}</td>
@@ -75,6 +84,8 @@
         <td class="mono long">{{ row.fbtrace_id or "" }}</td>
         <td>
           {% if row.skipped_duplicate %}<span class="pill">duplicate skipped</span>{% endif %}
+          {% if row.rejected %}<span class="pill">rejected before Meta</span>{% endif %}
+          {% if row.send_failed %}<span class="pill">Meta send failed</span>{% endif %}
           {% if row.events_received is not none %}<span class="pill">events {{ row.events_received }}</span>{% endif %}
           {% if row.messages %}<div>{{ row.messages }}</div>{% endif %}
           {% if row.error_user_title %}<strong>{{ row.error_user_title }}</strong>{% endif %}
