@@ -166,6 +166,29 @@ def main_test():
         assert dated_logs.status_code == 200, dated_logs.text
         assert "smoke_missing_pixel" in dated_logs.text
 
+        main.log_meta_to_redis({
+            "event_name": "Lead",
+            "clickid": "older_lead_click",
+            "tracker_pixel_id": "px_test",
+            "buyer_name": "admin",
+            "status_code": 200,
+        })
+        for i in range(150):
+            main.log_meta_to_redis({
+                "event_name": "PageView",
+                "clickid": f"pageview_click_{i}",
+                "tracker_pixel_id": "px_test",
+                "buyer_name": "admin",
+                "status_code": 200,
+            })
+        lead_logs = client.get(
+            "/admin/logs?buyer=__all__&event=Lead&clickid=",
+            auth=("admin", "admin"),
+        )
+        assert lead_logs.status_code == 200, lead_logs.text
+        assert "older_lead_click" in lead_logs.text
+        assert "pageview_click_149" not in lead_logs.text
+
         print("smoke ok")
     finally:
         main.engine.dispose()

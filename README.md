@@ -161,6 +161,7 @@ Log time is displayed and date-filtered in the configured application timezone, 
 Filtering behavior:
 
 - `limit=300&event=Lead` returns up to 300 Lead rows after filtering.
+- event and clickid filters read dedicated Redis indexes, so Leads are not lost from search just because recent PageView rows filled the main log stream.
 - for `buyer` users, logs are always restricted to their own `buyer_name`.
 - for `admin` users, `buyer=mine` filters by the admin user's `buyer_name`.
 - for `admin` users, `buyer=__all__` shows all buyers.
@@ -180,6 +181,10 @@ Default TTL:
 ```env
 DEDUP_TTL_SECONDS=600
 APP_TIMEZONE=Europe/Moscow
+META_LOG_MAX=10000
+META_EVENT_LOG_MAX=5000
+META_CLICK_LOG_MAX=200
+ADMIN_LOG_LIMIT_MAX=1000
 ```
 
 If the same event repeats during this window, the service returns:

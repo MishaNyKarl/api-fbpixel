@@ -5,7 +5,7 @@ import os
 import secrets
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 from urllib.parse import parse_qs, urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -42,7 +42,12 @@ DEDUP_TTL_SECONDS = int(os.getenv("DEDUP_TTL_SECONDS", "600"))
 APP_TIMEZONE = os.getenv("APP_TIMEZONE", "Europe/Moscow")
 
 META_LOG_KEY = "log:meta"
-META_LOG_MAX = 500
+META_EVENT_LOG_KEY_PREFIX = "log:meta:event:"
+META_CLICK_LOG_KEY_PREFIX = "log:meta:clickid:"
+META_LOG_MAX = int(os.getenv("META_LOG_MAX", "10000"))
+META_EVENT_LOG_MAX = int(os.getenv("META_EVENT_LOG_MAX", "5000"))
+META_CLICK_LOG_MAX = int(os.getenv("META_CLICK_LOG_MAX", "200"))
+ADMIN_LOG_LIMIT_MAX = int(os.getenv("ADMIN_LOG_LIMIT_MAX", "1000"))
 CLICK_TTL = 60 * 60 * 24 * 11
 
 try:
@@ -164,6 +169,7 @@ def app_date_shortcuts() -> Dict[str, str]:
         "week": (today - timedelta(days=6)).isoformat(),
     }
 
+
 def get_db():
     db = SessionLocal()
     try:
@@ -278,18 +284,40 @@ def load_fp(clickid: str) -> Dict[str, Any]:
     return json.loads(raw) if raw else {}
 
 
+def log_index_value(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    normalized = value.strip().lower()
+    if not normalized:
+        return None
+    safe = "".join(ch if ch.isalnum() or ch in {"-", "_", "."} else "_" for ch in normalized)
+    return safe[:160]
+
+
+def push_log_entry(key: str, payload: str, max_len: int):
+    rds.lpush(key, payload)
+    rds.ltrim(key, 0, max(0, max_len - 1))
+
+
 def log_meta_to_redis(entry: Dict[str, Any]):
     try:
         entry.setdefault("_ts", int(time.time()))
         entry.setdefault("when", format_app_timestamp(entry.get("_ts")))
-        rds.lpush(META_LOG_KEY, json.dumps(entry, ensure_ascii=False))
-        rds.ltrim(META_LOG_KEY, 0, META_LOG_MAX - 1)
+        payload = json.dumps(entry, ensure_ascii=False)
+        push_log_entry(META_LOG_KEY, payload, META_LOG_MAX)
+
+        event_index = log_index_value(entry.get("event_name"))
+        if event_index:
+            push_log_entry(f"{META_EVENT_LOG_KEY_PREFIX}{event_index}", payload, META_EVENT_LOG_MAX)
+
+        clickid_index = log_index_value(entry.get("clickid"))
+        if clickid_index:
+            push_log_entry(f"{META_CLICK_LOG_KEY_PREFIX}{clickid_index}", payload, META_CLICK_LOG_MAX)
     except Exception as e:
         log.warning("Failed to write meta log to Redis: %s", e)
 
 
-def load_meta_logs(limit: int = 100):
-    rows = rds.lrange(META_LOG_KEY, 0, max(0, min(limit, META_LOG_MAX) - 1))
+def parse_log_rows(rows: List[str]) -> List[Dict[str, Any]]:
     result = []
     for row in rows:
         try:
@@ -302,8 +330,31 @@ def load_meta_logs(limit: int = 100):
     return result
 
 
+def load_meta_logs_from_key(key: str, limit: int) -> List[Dict[str, Any]]:
+    rows = rds.lrange(key, 0, max(0, limit - 1))
+    return parse_log_rows(rows)
+
+
+def load_meta_logs(limit: int = 100):
+    return load_meta_logs_from_key(META_LOG_KEY, min(limit, META_LOG_MAX))
+
+
 def load_all_meta_logs():
     return load_meta_logs(META_LOG_MAX)
+
+
+def load_event_meta_logs(event_name: str):
+    event_index = log_index_value(event_name)
+    if not event_index:
+        return []
+    return load_meta_logs_from_key(f"{META_EVENT_LOG_KEY_PREFIX}{event_index}", META_EVENT_LOG_MAX)
+
+
+def load_clickid_meta_logs(clickid: str):
+    clickid_index = log_index_value(clickid)
+    if not clickid_index:
+        return []
+    return load_meta_logs_from_key(f"{META_CLICK_LOG_KEY_PREFIX}{clickid_index}", META_CLICK_LOG_MAX)
 
 
 def make_fbc_from_fbclid(fbclid: Optional[str]) -> Optional[str]:
@@ -911,7 +962,7 @@ async def admin_user_enable(username: str, db: Session = Depends(get_db), _: Dic
 @app.get("/admin/logs", response_class=HTMLResponse)
 async def admin_logs(
     request: Request,
-    limit: int = Query(default=100, ge=1, le=META_LOG_MAX),
+    limit: int = Query(default=100, ge=1, le=ADMIN_LOG_LIMIT_MAX),
     date_from: Optional[str] = Query(default=None),
     date_to: Optional[str] = Query(default=None),
     status_filter: Optional[str] = Query(default=None, alias="status"),
@@ -923,7 +974,13 @@ async def admin_logs(
     domain: Optional[str] = Query(default=None),
     user: Dict[str, Any] = Depends(require_user),
 ):
-    logs = load_all_meta_logs()
+    if clickid:
+        logs = load_clickid_meta_logs(clickid)
+    elif event:
+        logs = load_event_meta_logs(event)
+    else:
+        logs = load_all_meta_logs()
+
     selected_buyer = buyer or "mine"
     if not user.get("is_admin"):
         selected_buyer = user["buyer_name"]
