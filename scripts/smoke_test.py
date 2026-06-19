@@ -90,6 +90,9 @@ def main_test():
         admin = client.get("/admin/pixels", auth=("admin", "admin"))
         assert admin.status_code == 200, admin.text
         assert "px_test" in admin.text
+        assert "pixel-search-input" in admin.text
+        assert "pixel-column-settings" in admin.text
+        assert "theme-toggle" in admin.text
 
         users = client.get("/admin/users", auth=("admin", "admin"))
         assert users.status_code == 200, users.text

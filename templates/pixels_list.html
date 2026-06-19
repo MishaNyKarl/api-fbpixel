@@ -1,43 +1,239 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Пиксели</h1>
-<div class="actions">
-  <a class="btn" href="/admin/pixels/new">Добавить пиксель</a>
-  <a class="btn secondary" href="/admin/logs">Смотреть логи</a>
-</div>
-<table>
-  <thead>
-    <tr>
-      <th>public_id</th>
-      <th>name</th>
-      <th>buyer_name</th>
-      <th>domains</th>
-      <th>active</th>
-      <th>token</th>
-      <th></th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for pixel in pixels %}
-    <tr>
-      <td><code>{{ pixel.public_id }}</code></td>
-      <td>{{ pixel.name }}</td>
-      <td>{{ pixel.buyer_name or "" }}</td>
-      <td>{{ pixel.allowed_domains or "" }}</td>
-      <td>{% if pixel.is_active %}<span class="status-ok">yes</span>{% else %}<span class="status-bad">no</span>{% endif %}</td>
-      <td>{{ mask_token(pixel.meta_access_token) }}</td>
-      <td>
-        <div class="actions">
-          <a class="btn secondary" href="/admin/pixels/{{ pixel.public_id }}/edit">Редактировать</a>
-          {% if pixel.is_active %}
-          <form method="post" action="/admin/pixels/{{ pixel.public_id }}/disable"><button class="btn danger">Выключить</button></form>
-          {% else %}
-          <form method="post" action="/admin/pixels/{{ pixel.public_id }}/enable"><button class="btn ok">Включить</button></form>
-          {% endif %}
-        </div>
-      </td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+<section class="pixels-page">
+  <div class="pixels-topbar">
+    <div>
+      <h1>Пиксели</h1>
+      <p class="muted">Управление Meta Pixel конфигами. Токены в таблице показываются только в маске.</p>
+    </div>
+    <div class="pixels-tools">
+      <div class="pixels-search" role="search">
+        <button class="icon-glass-button" type="button" aria-label="Открыть поиск">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2">
+            <circle cx="11" cy="11" r="7"></circle>
+            <path d="m20 20-3.5-3.5"></path>
+          </svg>
+        </button>
+        <input id="pixel-search-input" class="pixels-search-input" type="search" placeholder="Search or Ask">
+      </div>
+      <div class="actions">
+        <a class="btn" href="/admin/pixels/new">Добавить пиксель</a>
+        <a class="btn secondary" href="/admin/logs">Смотреть логи</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="table-shell pixels-table-shell">
+    <button class="table-settings-button" id="pixel-settings-button" type="button" aria-label="Настроить столбцы">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2">
+        <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"></path>
+        <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.05.05a2 2 0 1 1-2.83 2.83l-.05-.05A1.7 1.7 0 0 0 15 19.37a1.7 1.7 0 0 0-1 .6l-.02.02a2 2 0 0 1-3.96 0L10 19.97a1.7 1.7 0 0 0-1-.6 1.7 1.7 0 0 0-1.88.34l-.05.05a2 2 0 1 1-2.83-2.83l.05-.05A1.7 1.7 0 0 0 4.63 15a1.7 1.7 0 0 0-.6-1l-.02-.02a2 2 0 0 1 0-3.96L4.03 10a1.7 1.7 0 0 0 .6-1 1.7 1.7 0 0 0-.34-1.88l-.05-.05a2 2 0 1 1 2.83-2.83l.05.05A1.7 1.7 0 0 0 9 4.63a1.7 1.7 0 0 0 1-.6l.02-.02a2 2 0 0 1 3.96 0l.02.02a1.7 1.7 0 0 0 1 .6 1.7 1.7 0 0 0 1.88-.34l.05-.05a2 2 0 1 1 2.83 2.83l-.05.05A1.7 1.7 0 0 0 19.37 9c.2.36.41.7.6 1l.02.02a2 2 0 0 1 0 3.96l-.02.02a1.7 1.7 0 0 0-.6 1Z"></path>
+      </svg>
+    </button>
+    <div class="column-settings-popover" id="pixel-column-settings" aria-hidden="true">
+      <p class="column-settings-title">Столбцы таблицы</p>
+      <div class="column-filter-tabs" role="group" aria-label="Фильтр столбцов">
+        <button type="button" class="is-active" data-column-filter="all">All</button>
+        <button type="button" data-column-filter="visible">Visible</button>
+        <button type="button" data-column-filter="hidden">Hidden</button>
+      </div>
+      <div class="column-settings-list" id="pixel-column-settings-list"></div>
+    </div>
+
+    <div class="table-wrap">
+      <table class="pixels-table" id="pixels-table">
+        <thead>
+          <tr>
+            <th data-col="public_id">public_id</th>
+            <th data-col="name">name</th>
+            <th data-col="buyer_name">buyer_name</th>
+            <th data-col="domains">domains</th>
+            <th data-col="active">active</th>
+            <th data-col="token">token</th>
+            <th data-col="actions"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for pixel in pixels %}
+          <tr class="pixel-row" data-search="{{ (pixel.public_id ~ ' ' ~ pixel.name ~ ' ' ~ (pixel.buyer_name or '') ~ ' ' ~ (pixel.allowed_domains or ''))|lower }}">
+            <td data-col="public_id"><code>{{ pixel.public_id }}</code></td>
+            <td data-col="name">{{ pixel.name }}</td>
+            <td data-col="buyer_name">{{ pixel.buyer_name or "" }}</td>
+            <td data-col="domains" class="pixel-domains">{{ pixel.allowed_domains or "" }}</td>
+            <td data-col="active">
+              {% if pixel.is_active %}
+              <span class="pixel-status-pill">yes</span>
+              {% else %}
+              <span class="pixel-status-pill off">no</span>
+              {% endif %}
+            </td>
+            <td data-col="token" class="pixel-token">{{ mask_token(pixel.meta_access_token) }}</td>
+            <td data-col="actions" class="pixel-actions">
+              <div class="actions">
+                <a class="btn secondary" href="/admin/pixels/{{ pixel.public_id }}/edit">Редактировать</a>
+                {% if pixel.is_active %}
+                <form method="post" action="/admin/pixels/{{ pixel.public_id }}/disable"><button class="btn danger">Выключить</button></form>
+                {% else %}
+                <form method="post" action="/admin/pixels/{{ pixel.public_id }}/enable"><button class="btn ok">Включить</button></form>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+          <tr id="pixel-empty-row" class="pixel-empty" hidden>
+            <td colspan="7">Ничего не найдено</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<script>
+  (() => {
+    const table = document.getElementById("pixels-table");
+    if (!table) return;
+
+    const userKey = {{ (current_user.username if current_user else "anonymous")|tojson }};
+    const hiddenKey = `api-pixel:pixels-hidden-columns:${userKey}`;
+    const filterKey = `api-pixel:pixels-column-filter:${userKey}`;
+    const searchKey = `api-pixel:pixels-search:${userKey}`;
+    const columns = Array.from(table.querySelectorAll("thead th[data-col]")).map((th) => ({
+      key: th.dataset.col,
+      label: th.textContent.trim() || "actions",
+    }));
+    const fixedColumns = new Set(["actions"]);
+    const rows = Array.from(table.querySelectorAll(".pixel-row"));
+    const emptyRow = document.getElementById("pixel-empty-row");
+    const settingsButton = document.getElementById("pixel-settings-button");
+    const popover = document.getElementById("pixel-column-settings");
+    const settingsList = document.getElementById("pixel-column-settings-list");
+    const filterButtons = Array.from(popover.querySelectorAll("[data-column-filter]"));
+    const searchInput = document.getElementById("pixel-search-input");
+
+    const readHidden = () => {
+      try {
+        return new Set(JSON.parse(sessionStorage.getItem(hiddenKey) || "[]"));
+      } catch {
+        return new Set();
+      }
+    };
+
+    const writeHidden = (hidden) => {
+      sessionStorage.setItem(hiddenKey, JSON.stringify(Array.from(hidden)));
+    };
+
+    let hiddenColumns = readHidden();
+    let activeFilter = sessionStorage.getItem(filterKey) || "all";
+
+    const eyeIcon = (hidden) => `
+      <svg class="eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z"></path>
+        <circle cx="12" cy="12" r="3"></circle>
+        <path class="eye-off-line" d="M4 4l16 16"></path>
+      </svg>`;
+
+    const applyColumnVisibility = () => {
+      columns.forEach((column) => {
+        const isHidden = hiddenColumns.has(column.key);
+        table.querySelectorAll(`[data-col="${column.key}"]`).forEach((cell) => {
+          cell.classList.toggle("is-column-hidden", isHidden);
+        });
+      });
+    };
+
+    const applyColumnFilter = () => {
+      filterButtons.forEach((button) => {
+        button.classList.toggle("is-active", button.dataset.columnFilter === activeFilter);
+      });
+      settingsList.querySelectorAll(".column-toggle").forEach((item) => {
+        const isHidden = item.classList.contains("is-hidden");
+        item.classList.toggle("is-filter-hidden", activeFilter === "visible" && isHidden);
+        item.classList.toggle("is-filter-hidden", activeFilter === "hidden" && !isHidden);
+      });
+    };
+
+    const renderSettings = () => {
+      settingsList.innerHTML = "";
+      columns.forEach((column) => {
+        if (fixedColumns.has(column.key)) return;
+        const isHidden = hiddenColumns.has(column.key);
+        const row = document.createElement("div");
+        row.className = `column-toggle${isHidden ? " is-hidden" : ""}`;
+        row.dataset.col = column.key;
+        row.innerHTML = `
+          <span class="column-name">${column.label}</span>
+          <button class="column-eye-button" type="button" aria-label="Переключить ${column.label}">
+            ${eyeIcon(isHidden)}
+          </button>
+          <span class="column-drag-handle" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2">
+              <path d="M8 7h8M8 12h8M8 17h8"></path>
+            </svg>
+          </span>`;
+        row.querySelector(".column-eye-button").addEventListener("click", () => {
+          if (hiddenColumns.has(column.key)) {
+            hiddenColumns.delete(column.key);
+          } else {
+            hiddenColumns.add(column.key);
+          }
+          writeHidden(hiddenColumns);
+          applyColumnVisibility();
+          renderSettings();
+        });
+        settingsList.appendChild(row);
+      });
+      applyColumnFilter();
+    };
+
+    const applySearch = () => {
+      const query = (searchInput.value || "").trim().toLowerCase();
+      let visible = 0;
+      rows.forEach((row) => {
+        const matched = !query || (row.dataset.search || row.textContent.toLowerCase()).includes(query);
+        row.hidden = !matched;
+        if (matched) visible += 1;
+      });
+      emptyRow.hidden = visible > 0;
+      sessionStorage.setItem(searchKey, query);
+    };
+
+    settingsButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const isOpen = popover.classList.toggle("is-open");
+      settingsButton.classList.toggle("is-open", isOpen);
+      popover.setAttribute("aria-hidden", String(!isOpen));
+    });
+
+    document.addEventListener("click", (event) => {
+      if (!popover.classList.contains("is-open")) return;
+      if (popover.contains(event.target) || settingsButton.contains(event.target)) return;
+      popover.classList.remove("is-open");
+      settingsButton.classList.remove("is-open");
+      popover.setAttribute("aria-hidden", "true");
+    });
+
+    filterButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        activeFilter = button.dataset.columnFilter;
+        sessionStorage.setItem(filterKey, activeFilter);
+        applyColumnFilter();
+      });
+    });
+
+    searchInput.value = sessionStorage.getItem(searchKey) || "";
+    searchInput.addEventListener("input", applySearch);
+    searchInput.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        searchInput.value = "";
+        applySearch();
+        searchInput.blur();
+      }
+    });
+
+    applyColumnVisibility();
+    renderSettings();
+    applySearch();
+  })();
+</script>
 {% endblock %}

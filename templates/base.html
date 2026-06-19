@@ -4,11 +4,23 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ title or "API Pixel" }}</title>
+  <script>
+    (() => {
+      const savedTheme = sessionStorage.getItem("api-pixel:theme") || "light";
+      document.documentElement.dataset.theme = savedTheme;
+    })();
+  </script>
   <style>
     body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Arial, sans-serif; color: #0f172a; background: linear-gradient(180deg, #f8fafc 0%, #eef3f9 100%); }
-    header { background: rgba(15, 23, 42, .92); color: #fff; padding: 14px 24px; display: flex; gap: 18px; align-items: center; backdrop-filter: blur(18px); box-shadow: 0 1px 0 rgba(255,255,255,.08) inset; }
-    header a { color: #dbeafe; text-decoration: none; }
-    header .muted { color: #aebed5; margin-left: auto; }
+    header { position: sticky; top: 0; z-index: 100; background: rgba(3, 7, 18, .92); color: #fff; padding: 13px 24px; display: flex; gap: 14px; align-items: center; backdrop-filter: blur(24px) saturate(150%); box-shadow: 0 1px 0 rgba(255,255,255,.10) inset, 0 10px 34px rgba(15,23,42,.12); }
+    header a { color: #e5e7eb; text-decoration: none; }
+    header .muted { color: #aebed5; margin-left: 0; white-space: nowrap; }
+    .brand { letter-spacing: -.01em; white-space: nowrap; }
+    .nav-pills { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .nav-pills a, .theme-toggle { min-height: 34px; padding: 0 18px; border: 1px solid rgba(255,255,255,.16); border-radius: 999px; background: rgba(255,255,255,.08); color: #f8fafc; display: inline-flex; align-items: center; justify-content: center; font: inherit; font-weight: 650; cursor: pointer; opacity: .9; box-shadow: inset 0 1px 1px rgba(255,255,255,.12), 0 8px 22px rgba(0,0,0,.16); transition: background .15s ease, color .15s ease, opacity .15s ease, transform .15s ease; }
+    .nav-pills a:hover, .theme-toggle:hover { opacity: 1; transform: translateY(-1px); background: rgba(255,255,255,.14); }
+    .nav-pills a.is-active { background: rgba(255,255,255,.95); color: #020617; border-color: rgba(255,255,255,.72); box-shadow: 0 12px 30px rgba(255,255,255,.13); }
+    .theme-toggle { margin-left: auto; padding: 0 14px; color: #e5e7eb; }
     main { padding: 24px; width: 100%; box-sizing: border-box; }
     table { width: 100%; border-collapse: collapse; background: rgba(255,255,255,.86); border: 1px solid rgba(148, 163, 184, .35); }
     th, td { padding: 10px 12px; border-bottom: 1px solid #e5eaf3; text-align: left; vertical-align: top; }
@@ -122,22 +134,90 @@
     .timeline-head { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
     .issue-list { display: grid; gap: 8px; margin: 14px 0; padding: 0; list-style: none; }
     .issue-list li { padding: 10px 12px; border-radius: 12px; background: rgba(254,243,199,.85); color: #92400e; }
+    .pixels-page { display: grid; gap: 16px; }
+    .pixels-topbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+    .pixels-topbar .actions { margin: 0; }
+    .pixels-tools { display: flex; align-items: center; gap: 10px; }
+    .pixels-search { position: relative; display: flex; align-items: center; min-height: 42px; }
+    .icon-glass-button { position: relative; z-index: 2; width: 42px; height: 42px; border: 1px solid rgba(148,163,184,.30); border-radius: 999px; background: rgba(255,255,255,.46); color: #334155; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; opacity: .72; backdrop-filter: blur(18px) saturate(160%); box-shadow: inset 0 1px 1px rgba(255,255,255,.68), 0 10px 24px rgba(15,23,42,.08); transition: opacity .15s ease, background .15s ease, transform .15s ease; }
+    .icon-glass-button:hover, .icon-glass-button:focus, .pixels-search:focus-within .icon-glass-button { opacity: 1; background: rgba(255,255,255,.86); transform: translateY(-1px); outline: 0; }
+    .icon-glass-button svg { width: 18px; height: 18px; stroke: currentColor; }
+    .pixels-search-input { position: absolute; left: 0; z-index: 1; width: 42px; height: 42px; padding: 0; border-radius: 999px; opacity: 0; pointer-events: none; transition: width .18s ease, opacity .14s ease, padding .18s ease; }
+    .pixels-search:hover .pixels-search-input, .pixels-search:focus-within .pixels-search-input { width: min(360px, 62vw); opacity: .94; padding: 0 16px 0 48px; pointer-events: auto; background: rgba(255,255,255,.70); backdrop-filter: blur(22px) saturate(160%); }
+    .pixels-table-shell { position: relative; }
+    .pixels-table { table-layout: fixed; width: 100%; min-width: 1120px; }
+    .pixels-table th, .pixels-table td { padding: 9px 12px; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .pixels-table th { box-shadow: inset -1px 0 0 rgba(100,116,139,.26); }
+    .pixels-table .actions { margin: 0; justify-content: flex-end; }
+    .pixels-table form { margin: 0; }
+    .pixel-actions { min-width: 220px; }
+    .pixel-domains { max-width: 340px; white-space: pre-line; }
+    .pixel-status-pill { padding: 3px 8px; border-radius: 999px; background: rgba(22,163,74,.12); color: #15803d; font-weight: 800; }
+    .pixel-status-pill.off { background: rgba(220,38,38,.12); color: #dc2626; }
+    .pixel-empty { padding: 26px; text-align: center; color: #64748b; }
+    .pixel-token { color: #334155; }
+    html[data-theme="dark"] body { color: #e5e7eb; background: radial-gradient(circle at top, #1f2937 0%, #020617 52%, #000 100%); }
+    html[data-theme="dark"] header { background: rgba(0,0,0,.74); box-shadow: 0 1px 0 rgba(255,255,255,.12) inset, 0 12px 36px rgba(0,0,0,.38); }
+    html[data-theme="dark"] .nav-pills a, html[data-theme="dark"] .theme-toggle { border-color: rgba(255,255,255,.18); background: rgba(255,255,255,.10); color: #f8fafc; }
+    html[data-theme="dark"] .nav-pills a.is-active { background: rgba(255,255,255,.92); color: #020617; }
+    html[data-theme="dark"] table, html[data-theme="dark"] .table-wrap, html[data-theme="dark"] .metric-card, html[data-theme="dark"] .timeline-item { background: rgba(15,23,42,.72); border-color: rgba(148,163,184,.25); color: #e5e7eb; }
+    html[data-theme="dark"] th, html[data-theme="dark"] .logs-table th[data-col="row_number"], html[data-theme="dark"] .logs-table td[data-col="row_number"] { background: rgba(30,41,59,.92); color: #e5e7eb; }
+    html[data-theme="dark"] td { border-bottom-color: rgba(148,163,184,.18); }
+    html[data-theme="dark"] input, html[data-theme="dark"] textarea, html[data-theme="dark"] select { background: rgba(15,23,42,.72); border-color: rgba(148,163,184,.35); color: #e5e7eb; }
+    html[data-theme="dark"] input::placeholder, html[data-theme="dark"] textarea::placeholder { color: #94a3b8; }
+    html[data-theme="dark"] code, html[data-theme="dark"] pre, html[data-theme="dark"] .pill { background: rgba(148,163,184,.18); color: #e5e7eb; }
+    html[data-theme="dark"] .muted, html[data-theme="dark"] header .muted, html[data-theme="dark"] .metric-card .label, html[data-theme="dark"] .table-toolbar output, html[data-theme="dark"] .pixel-empty { color: #94a3b8; }
+    html[data-theme="dark"] .btn.secondary { background: rgba(71,85,105,.86); color: #f8fafc; }
+    html[data-theme="dark"] .filters .btn, html[data-theme="dark"] .quick-filters .btn, html[data-theme="dark"] .table-toolbar .btn, html[data-theme="dark"] .icon-glass-button { background: rgba(255,255,255,.10); color: #e5e7eb; border-color: rgba(255,255,255,.15); }
+    html[data-theme="dark"] .filters .btn:not(.secondary) { background: rgba(255,255,255,.14); color: #93c5fd; }
+    html[data-theme="dark"] .column-settings-popover, html[data-theme="dark"] .domain-popover { background: rgba(15,23,42,.84); border-color: rgba(255,255,255,.16); color: #e5e7eb; }
+    html[data-theme="dark"] .column-toggle { background: rgba(255,255,255,.07); color: #e5e7eb; }
+    html[data-theme="dark"] .column-toggle:hover { background: rgba(255,255,255,.12); }
+    html[data-theme="dark"] .column-filter-tabs { background: rgba(255,255,255,.08); }
+    html[data-theme="dark"] .column-filter-tabs button { color: #cbd5e1; }
+    html[data-theme="dark"] .column-filter-tabs button.is-active { background: rgba(255,255,255,.20); color: #f8fafc; }
+    html[data-theme="dark"] .domain-popover .full-url-field { background: rgba(2,6,23,.68); color: #e5e7eb; }
+    html[data-theme="dark"] .duplicate-row { background: rgba(120, 90, 20, .24); }
+    html[data-theme="dark"] .pixel-token { color: #cbd5e1; }
   </style>
 </head>
 <body>
   <header>
-    <strong>API Pixel</strong>
-    <a href="/admin/pixels">Пиксели</a>
-    <a href="/admin/logs">Логи Meta</a>
-    <a href="/admin/quality">Quality</a>
-    <a href="/admin/diagnostics">Diagnostics</a>
+    <strong class="brand">API Pixel</strong>
+    <nav class="nav-pills" aria-label="Admin navigation">
+      <a href="/admin/pixels" class="{% if request.url.path.startswith('/admin/pixels') %}is-active{% endif %}">Пиксели</a>
+      <a href="/admin/logs" class="{% if request.url.path == '/admin/logs' %}is-active{% endif %}">Логи Meta</a>
+      <a href="/admin/quality" class="{% if request.url.path == '/admin/quality' %}is-active{% endif %}">Quality</a>
+      <a href="/admin/diagnostics" class="{% if request.url.path == '/admin/diagnostics' %}is-active{% endif %}">Diagnostics</a>
     {% if current_user and current_user.is_admin %}
-    <a href="/admin/users">Пользователи</a>
+      <a href="/admin/users" class="{% if request.url.path.startswith('/admin/users') %}is-active{% endif %}">Пользователи</a>
     {% endif %}
+    </nav>
+    <button class="theme-toggle" type="button" id="theme-toggle" aria-label="Toggle dark theme">Theme</button>
     {% if current_user %}
     <span class="muted">{{ current_user.username }} / {{ current_user.role }}</span>
     {% endif %}
   </header>
   <main>{% block content %}{% endblock %}</main>
+  <script>
+    (() => {
+      const button = document.getElementById("theme-toggle");
+      if (!button) return;
+
+      const render = () => {
+        const theme = document.documentElement.dataset.theme || "light";
+        button.textContent = theme === "dark" ? "Light" : "Dark";
+        button.setAttribute("aria-pressed", String(theme === "dark"));
+      };
+
+      button.addEventListener("click", () => {
+        const nextTheme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+        document.documentElement.dataset.theme = nextTheme;
+        sessionStorage.setItem("api-pixel:theme", nextTheme);
+        render();
+      });
+      render();
+    })();
+  </script>
 </body>
 </html>
