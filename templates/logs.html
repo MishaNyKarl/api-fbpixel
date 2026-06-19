@@ -40,6 +40,13 @@
   <a class="btn secondary" href="/admin/logs?date_from={{ week_date }}&date_to={{ today_date }}&buyer={{ buyer }}">7 дней</a>
 </div>
 
+<div class="table-toolbar">
+  <label for="logs-font-size">Размер шрифта</label>
+  <input id="logs-font-size" type="range" min="10" max="18" step="1" value="13">
+  <output id="logs-font-size-value" for="logs-font-size">13px</output>
+  <button class="btn secondary" type="button" id="logs-font-size-reset">Сбросить</button>
+</div>
+
 <div class="table-wrap">
   <table class="logs-table resizable-table" data-resize-key="api-pixel:logs-column-widths:v1">
     <colgroup>
@@ -128,9 +135,13 @@
   if (!table) return;
 
   const storageKey = table.dataset.resizeKey || "api-pixel:logs-column-widths:v1";
+  const fontSizeKey = "api-pixel:logs-font-size:v1";
   const minWidth = 64;
   const cols = Array.from(table.querySelectorAll("colgroup col"));
   const headers = Array.from(table.querySelectorAll("thead th"));
+  const fontInput = document.querySelector("#logs-font-size");
+  const fontOutput = document.querySelector("#logs-font-size-value");
+  const fontReset = document.querySelector("#logs-font-size-reset");
 
   function loadWidths() {
     try {
@@ -200,8 +211,35 @@
     });
   }
 
+  function applyFontSize(value) {
+    const size = Math.min(18, Math.max(10, Number(value) || 13));
+    table.style.setProperty("--logs-font-size", `${size}px`);
+    if (fontInput) fontInput.value = String(size);
+    if (fontOutput) fontOutput.textContent = `${size}px`;
+    return size;
+  }
+
+  function installFontSizeControl() {
+    if (!fontInput) return;
+    const saved = sessionStorage.getItem(fontSizeKey);
+    applyFontSize(saved || fontInput.value || 13);
+
+    fontInput.addEventListener("input", () => {
+      const size = applyFontSize(fontInput.value);
+      sessionStorage.setItem(fontSizeKey, String(size));
+    });
+
+    if (fontReset) {
+      fontReset.addEventListener("click", () => {
+        sessionStorage.removeItem(fontSizeKey);
+        applyFontSize(13);
+      });
+    }
+  }
+
   applySavedWidths();
   installHandles();
+  installFontSizeControl();
 })();
 </script>
 {% endblock %}

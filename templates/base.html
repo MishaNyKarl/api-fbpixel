@@ -38,8 +38,10 @@
     .table-wrap { overflow: auto; border: 1px solid #d7deea; background: #fff; }
     .table-wrap table { border: 0; min-width: 1500px; }
     .resizable-table { table-layout: fixed; width: max-content; }
-    .logs-table th, .logs-table td { padding: 8px 9px; font-size: 13px; }
-    .logs-table th { position: relative; user-select: none; }
+    .logs-table { --logs-font-size: 13px; }
+    .logs-table th, .logs-table td { padding: 8px 9px; font-size: var(--logs-font-size); border-right: 1px solid #cbd5e1; }
+    .logs-table th:last-child, .logs-table td:last-child { border-right: 0; }
+    .logs-table th { position: relative; user-select: none; box-shadow: inset -1px 0 0 #94a3b8; }
     .logs-table td { overflow: hidden; text-overflow: ellipsis; }
     .mono { font-family: Consolas, Monaco, monospace; }
     .long { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -51,15 +53,19 @@
     .domain-details[open] .plus::before { content: "-"; }
     .domain-details[open] .plus { font-size: 0; }
     .full-url { display: block; max-width: 420px; margin-top: 6px; color: #2563eb; white-space: normal; overflow-wrap: anywhere; }
-    .column-resize-handle { position: absolute; top: 0; right: -5px; width: 10px; height: 100%; cursor: col-resize; z-index: 2; }
-    .column-resize-handle::before { content: ""; position: absolute; top: 7px; bottom: 7px; left: 4px; width: 2px; border-radius: 2px; background: transparent; }
-    .column-resize-handle::after { content: "↔"; position: absolute; top: 50%; right: -10px; transform: translateY(-50%); padding: 1px 4px; border-radius: 4px; background: #2563eb; color: #fff; font-size: 11px; line-height: 1.2; opacity: 0; pointer-events: none; }
+    .column-resize-handle { position: absolute; top: 0; right: -7px; width: 14px; height: 100%; cursor: col-resize; z-index: 2; }
+    .column-resize-handle::before { content: ""; position: absolute; top: 6px; bottom: 6px; left: 6px; width: 3px; border-radius: 2px; background: #94a3b8; box-shadow: 0 0 0 1px rgba(255,255,255,.7); }
+    .column-resize-handle::after { content: "↔"; position: absolute; top: 50%; right: -11px; transform: translateY(-50%); padding: 1px 4px; border-radius: 4px; background: #2563eb; color: #fff; font-size: 11px; line-height: 1.2; opacity: 0; pointer-events: none; }
     .logs-table th:hover .column-resize-handle::before,
-    .logs-table th.is-resizing .column-resize-handle::before { background: #2563eb; }
+    .logs-table th.is-resizing .column-resize-handle::before { background: #2563eb; width: 4px; }
     .logs-table th:hover .column-resize-handle::after,
     .logs-table th.is-resizing .column-resize-handle::after { opacity: 1; }
     .column-resizing { cursor: col-resize !important; user-select: none; }
     .column-resizing * { cursor: col-resize !important; }
+    .table-toolbar { display: flex; align-items: center; gap: 10px; margin: 12px 0 8px; flex-wrap: wrap; }
+    .table-toolbar label { display: inline-flex; align-items: center; gap: 8px; margin: 0; font-weight: 700; }
+    .table-toolbar input[type="range"] { width: 180px; padding: 0; }
+    .table-toolbar output { min-width: 44px; font-family: Consolas, Monaco, monospace; color: #334155; }
   </style>
 </head>
 <body>
