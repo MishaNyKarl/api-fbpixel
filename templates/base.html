@@ -53,10 +53,10 @@
     .domain-link-button:hover, .domain-link-button:focus { background: #2563eb; color: #fff; transform: translateY(-1px); outline: 0; }
     .domain-link-button svg { width: 13px; height: 13px; stroke: currentColor; }
     .domain-popover { position: fixed; z-index: 50; display: none; max-width: min(760px, calc(100vw - 32px)); padding: 12px; border: 1px solid rgba(255,255,255,.62); border-radius: 18px; background: rgba(248,250,252,.74); box-shadow: 0 22px 60px rgba(15,23,42,.22); backdrop-filter: blur(24px) saturate(160%); opacity: .9; }
-    .domain-popover.is-open { display: flex; align-items: center; gap: 10px; }
-    .domain-popover .copy-url { border: 0; border-radius: 999px; padding: 8px 12px; background: rgba(37,99,235,.92); color: #fff; cursor: pointer; white-space: nowrap; }
-    .domain-popover .full-url { color: #0f172a; text-decoration: none; overflow-wrap: anywhere; line-height: 1.35; }
-    .domain-popover .full-url:hover { color: #2563eb; }
+    .domain-popover.is-open { display: grid; grid-template-columns: minmax(260px, 1fr) auto; align-items: center; gap: 10px; }
+    .domain-popover .copy-url { border: 0; border-radius: 999px; padding: 8px 12px; background: rgba(37,99,235,.92); color: #fff; cursor: pointer; white-space: nowrap; order: 2; }
+    .domain-popover .full-url-field { width: min(620px, calc(100vw - 180px)); min-height: 58px; max-height: 92px; padding: 8px 10px; border: 1px solid rgba(148,163,184,.28); border-radius: 12px; background: rgba(255,255,255,.62); color: #0f172a; font-family: Consolas, Monaco, monospace; font-size: 11px; line-height: 1.35; resize: none; outline: none; overflow: auto; box-shadow: inset 0 1px 2px rgba(15,23,42,.05); }
+    .domain-popover .full-url-field:focus { border-color: rgba(37,99,235,.55); box-shadow: 0 0 0 3px rgba(37,99,235,.10), inset 0 1px 2px rgba(15,23,42,.05); }
     .column-resize-handle { position: absolute; top: 0; right: -7px; width: 14px; height: 100%; cursor: col-resize; z-index: 2; }
     .column-resize-handle::before { content: ""; position: absolute; top: 7px; bottom: 7px; left: 6px; width: 2px; border-radius: 999px; background: rgba(100,116,139,.62); box-shadow: 0 0 0 1px rgba(255,255,255,.65); transition: background .15s ease, box-shadow .15s ease, width .15s ease; }
     .column-resize-handle::after { content: ""; position: absolute; top: 50%; left: 3px; width: 8px; height: 28px; border-radius: 999px; background: rgba(37,99,235,.10); transform: translateY(-50%) scaleX(.8); opacity: 0; pointer-events: none; transition: opacity .15s ease, transform .15s ease; }

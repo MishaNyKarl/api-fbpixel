@@ -77,8 +77,8 @@
     <div class="column-settings-list" id="column-settings-list"></div>
   </div>
   <div class="domain-popover" id="domain-popover" aria-hidden="true">
+    <textarea class="full-url-field" readonly aria-label="Полная ссылка"></textarea>
     <button class="copy-url" type="button">Скопировать</button>
-    <a class="full-url" href="#" target="_blank" rel="noopener noreferrer"></a>
   </div>
   <div class="table-wrap">
     <table class="logs-table resizable-table" data-resize-key="api-pixel:logs-column-widths:v1" data-columns-key="api-pixel:logs-visible-columns:v1" data-order-key="api-pixel:logs-column-order:v1">
@@ -193,7 +193,7 @@
   const layoutSaveButton = document.querySelector("#layout-save-button");
   const layoutPresetsSelect = document.querySelector("#layout-presets-select");
   const domainPopover = document.querySelector("#domain-popover");
-  const domainPopoverLink = domainPopover ? domainPopover.querySelector(".full-url") : null;
+  const domainUrlField = domainPopover ? domainPopover.querySelector(".full-url-field") : null;
   const domainCopyButton = domainPopover ? domainPopover.querySelector(".copy-url") : null;
   let domainHideTimer = null;
 
@@ -629,15 +629,16 @@
   }
 
   function showDomainPopover(button) {
-    if (!domainPopover || !domainPopoverLink || !domainCopyButton) return;
+    if (!domainPopover || !domainUrlField || !domainCopyButton) return;
     clearTimeout(domainHideTimer);
     const url = button.dataset.url || "";
-    domainPopoverLink.href = url;
-    domainPopoverLink.textContent = url;
+    domainUrlField.value = url;
     domainCopyButton.dataset.url = url;
     positionDomainPopover(button);
     domainPopover.classList.add("is-open");
     domainPopover.setAttribute("aria-hidden", "false");
+    domainUrlField.focus({ preventScroll: true });
+    domainUrlField.setSelectionRange(0, 0);
   }
 
   function scheduleDomainPopoverHide() {
