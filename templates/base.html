@@ -58,12 +58,12 @@
     .domain-popover .full-url { color: #0f172a; text-decoration: none; overflow-wrap: anywhere; line-height: 1.35; }
     .domain-popover .full-url:hover { color: #2563eb; }
     .column-resize-handle { position: absolute; top: 0; right: -7px; width: 14px; height: 100%; cursor: col-resize; z-index: 2; }
-    .column-resize-handle::before { content: ""; position: absolute; top: 6px; bottom: 6px; left: 6px; width: 3px; border-radius: 2px; background: #94a3b8; box-shadow: 0 0 0 1px rgba(255,255,255,.7); }
-    .column-resize-handle::after { content: "↔"; position: absolute; top: 50%; right: -11px; transform: translateY(-50%); padding: 1px 4px; border-radius: 4px; background: #2563eb; color: #fff; font-size: 11px; line-height: 1.2; opacity: 0; pointer-events: none; }
+    .column-resize-handle::before { content: ""; position: absolute; top: 7px; bottom: 7px; left: 6px; width: 2px; border-radius: 999px; background: rgba(100,116,139,.62); box-shadow: 0 0 0 1px rgba(255,255,255,.65); transition: background .15s ease, box-shadow .15s ease, width .15s ease; }
+    .column-resize-handle::after { content: ""; position: absolute; top: 50%; left: 3px; width: 8px; height: 28px; border-radius: 999px; background: rgba(37,99,235,.10); transform: translateY(-50%) scaleX(.8); opacity: 0; pointer-events: none; transition: opacity .15s ease, transform .15s ease; }
     .logs-table th:hover .column-resize-handle::before,
-    .logs-table th.is-resizing .column-resize-handle::before { background: #2563eb; width: 4px; }
+    .logs-table th.is-resizing .column-resize-handle::before { background: #2563eb; width: 3px; box-shadow: 0 0 0 4px rgba(37,99,235,.12); }
     .logs-table th:hover .column-resize-handle::after,
-    .logs-table th.is-resizing .column-resize-handle::after { opacity: 1; }
+    .logs-table th.is-resizing .column-resize-handle::after { opacity: 1; transform: translateY(-50%) scaleX(1); }
     .column-resizing { cursor: col-resize !important; user-select: none; }
     .column-resizing * { cursor: col-resize !important; }
     .table-toolbar { display: flex; align-items: center; gap: 10px; margin: 12px 0 8px; flex-wrap: wrap; }

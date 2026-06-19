@@ -369,8 +369,12 @@
     if (!domainPopover) return;
     const rect = button.getBoundingClientRect();
     const popoverWidth = Math.min(760, window.innerWidth - 32);
-    const left = Math.min(window.innerWidth - popoverWidth - 16, Math.max(16, rect.right - popoverWidth));
-    const top = Math.min(window.innerHeight - 88, rect.bottom + 8);
+    const preferredLeft = rect.right + 10;
+    const fallbackLeft = rect.left - popoverWidth - 10;
+    const left = preferredLeft + popoverWidth <= window.innerWidth - 16
+      ? preferredLeft
+      : Math.max(16, fallbackLeft);
+    const top = Math.min(window.innerHeight - 88, Math.max(16, rect.top - 10));
     domainPopover.style.left = `${left}px`;
     domainPopover.style.top = `${top}px`;
     domainPopover.style.maxWidth = `${popoverWidth}px`;
