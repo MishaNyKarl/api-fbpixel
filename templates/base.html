@@ -18,8 +18,8 @@
     label { display: block; margin: 14px 0 6px; font-weight: 700; }
     .row { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
     .actions { display: flex; gap: 8px; align-items: center; margin: 16px 0; flex-wrap: wrap; }
-    .btn { border: 0; border-radius: 9px; padding: 9px 13px; background: #2563eb; color: #fff; text-decoration: none; cursor: pointer; font: inherit; display: inline-block; white-space: nowrap; box-shadow: 0 8px 18px rgba(37,99,235,.16); }
-    .btn.secondary { background: #4b5563; }
+    .btn { border: 0; border-radius: 9px; padding: 9px 13px; background: rgba(37,99,235,.9); color: #fff; text-decoration: none; cursor: pointer; font: inherit; font-weight: 600; display: inline-block; white-space: nowrap; box-shadow: 0 8px 18px rgba(37,99,235,.16); opacity: .94; }
+    .btn.secondary { background: rgba(51,65,85,.86); }
     .btn.danger { background: #dc2626; }
     .btn.ok { background: #15803d; }
     .muted { color: #64748b; font-size: 13px; }
@@ -40,12 +40,13 @@
     .table-wrap table { border: 0; min-width: 100%; }
     .resizable-table { table-layout: fixed; width: 100%; }
     .logs-table { --logs-font-size: 13px; }
-    .logs-table th, .logs-table td { padding: 8px 9px; font-size: var(--logs-font-size); border-right: 1px solid rgba(148, 163, 184, .42); }
+    .logs-table th, .logs-table td { padding: 5px 7px; font-size: var(--logs-font-size); line-height: 1.24; border-right: 1px solid rgba(148, 163, 184, .42); }
     .logs-table th:last-child, .logs-table td:last-child { border-right: 0; }
     .logs-table th { position: relative; user-select: none; box-shadow: inset -1px 0 0 rgba(100,116,139,.55); }
-    .logs-table td { overflow: hidden; text-overflow: ellipsis; }
+    .logs-table td { overflow: hidden; text-overflow: ellipsis; white-space: normal; }
+    .row-number { color: #64748b; font-variant-numeric: tabular-nums; text-align: right; }
     .mono { font-family: Consolas, Monaco, monospace; }
-    .long { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .long { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-all; }
     .duplicate-row { background: #fffbeb; }
     .domain-cell { display: flex; align-items: center; gap: 8px; min-width: 0; }
     .domain-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -55,6 +56,8 @@
     .domain-popover { position: fixed; z-index: 50; display: none; max-width: min(760px, calc(100vw - 32px)); padding: 12px; border: 1px solid rgba(255,255,255,.62); border-radius: 18px; background: rgba(248,250,252,.74); box-shadow: 0 22px 60px rgba(15,23,42,.22); backdrop-filter: blur(24px) saturate(160%); opacity: .9; }
     .domain-popover.is-open { display: grid; grid-template-columns: minmax(260px, 1fr) auto; align-items: center; gap: 10px; }
     .domain-popover .copy-url { border: 0; border-radius: 999px; padding: 8px 12px; background: rgba(37,99,235,.92); color: #fff; cursor: pointer; white-space: nowrap; order: 2; }
+    .domain-popover.copy-left .copy-url { order: -1; }
+    .domain-popover.copy-right .copy-url { order: 2; }
     .domain-popover .full-url-field { width: min(620px, calc(100vw - 180px)); min-height: 58px; max-height: 92px; padding: 8px 10px; border: 1px solid rgba(148,163,184,.28); border-radius: 12px; background: rgba(255,255,255,.62); color: #0f172a; font-family: Consolas, Monaco, monospace; font-size: 11px; line-height: 1.35; resize: none; outline: none; overflow: auto; box-shadow: inset 0 1px 2px rgba(15,23,42,.05); }
     .domain-popover .full-url-field:focus { border-color: rgba(37,99,235,.55); box-shadow: 0 0 0 3px rgba(37,99,235,.10), inset 0 1px 2px rgba(15,23,42,.05); }
     .column-resize-handle { position: absolute; top: 0; right: -7px; width: 14px; height: 100%; cursor: col-resize; z-index: 2; }
@@ -70,6 +73,9 @@
     .table-toolbar label { display: inline-flex; align-items: center; gap: 8px; margin: 0; font-weight: 700; }
     .table-toolbar input[type="range"] { width: 180px; padding: 0; }
     .table-toolbar output { min-width: 44px; font-family: Consolas, Monaco, monospace; color: #334155; }
+    .filters .btn, .quick-filters .btn, .table-toolbar .btn { border: 1px solid rgba(255,255,255,.58); background: rgba(51,65,85,.72); color: #fff; border-radius: 14px; font-weight: 600; opacity: .9; backdrop-filter: blur(18px) saturate(160%); box-shadow: 0 12px 28px rgba(15,23,42,.13), inset 0 1px 0 rgba(255,255,255,.22); }
+    .filters .btn:not(.secondary) { background: rgba(37,99,235,.82); }
+    .filters .btn:hover, .quick-filters .btn:hover, .table-toolbar .btn:hover { opacity: 1; transform: translateY(-1px); }
     .table-settings-button { position: absolute; right: 12px; top: 12px; z-index: 5; width: 36px; height: 36px; border: 1px solid rgba(148,163,184,.36); border-radius: 999px; background: rgba(255,255,255,.38); color: rgba(15,23,42,.58); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; opacity: .55; backdrop-filter: blur(16px); transition: opacity .15s ease, color .15s ease, background .15s ease, transform .15s ease; }
     .table-settings-button:hover, .table-settings-button:focus, .table-settings-button.is-open { opacity: 1; color: #0f172a; background: rgba(255,255,255,.86); transform: translateY(-1px); outline: 0; }
     .table-settings-button svg { width: 18px; height: 18px; stroke: currentColor; }
