@@ -9,7 +9,7 @@
   Пользователь: {{ current_user.username }}; роль: {{ current_user.role }}; buyer: {{ current_user.buyer_name }}.
 </p>
 
-<form method="get" action="/admin/logs" class="filters">
+<form method="get" action="/admin/logs" class="filters" id="logs-filter-form">
   <input name="limit" value="{{ limit }}" placeholder="limit">
   <input type="date" name="date_from" value="{{ date_from }}" title="Дата с">
   <input type="date" name="date_to" value="{{ date_to }}" title="Дата по">
@@ -31,7 +31,7 @@
   <input value="Мои: {{ current_user.buyer_name }}" disabled>
   {% endif %}
   <button class="btn">Фильтр</button>
-  <a class="btn secondary" href="/admin/logs">Сбросить</a>
+  <a class="btn secondary" href="/admin/logs" id="logs-filter-reset">Сбросить</a>
 </form>
 
 <div class="quick-filters">
@@ -83,7 +83,7 @@
   <div class="table-wrap">
     <table class="logs-table resizable-table" data-resize-key="api-pixel:logs-column-widths:v1" data-columns-key="api-pixel:logs-visible-columns:v1" data-order-key="api-pixel:logs-column-order:v1">
     <colgroup>
-      <col data-col="row_number" style="width: 52px">
+      <col data-col="row_number" style="width: 28px">
       <col data-col="time" style="width: 160px">
       <col data-col="status" style="width: 82px">
       <col data-col="event" style="width: 110px">
@@ -92,8 +92,8 @@
       <col data-col="tracker_pixel_id" style="width: 150px">
       <col data-col="event_id" style="width: 240px">
       <col data-col="clickid" style="width: 180px">
-      <col data-col="fbclid" style="width: 260px">
-      <col data-col="fbc" style="width: 260px">
+      <col data-col="fbclid" style="width: 150px">
+      <col data-col="fbc" style="width: 150px">
       <col data-col="domain" style="width: 190px">
       <col data-col="fbtrace" style="width: 220px">
       <col data-col="details" style="width: 220px">
@@ -183,12 +183,16 @@
   const templatesKey = `api-pixel:logs-layout-templates:${currentUsername}`;
   const activeTemplateKey = `api-pixel:logs-active-layout-template:${currentUsername}`;
   const fontSizeKey = "api-pixel:logs-font-size:v1";
-  const minWidth = 64;
+  const filterStateKey = `api-pixel:logs-last-filter:${currentUsername}`;
+  const minWidth = 40;
+  const fixedColumnWidths = { row_number: 28 };
   let cols = Array.from(table.querySelectorAll("colgroup col"));
   let headers = Array.from(table.querySelectorAll("thead th"));
   const fontInput = document.querySelector("#logs-font-size");
   const fontOutput = document.querySelector("#logs-font-size-value");
   const fontReset = document.querySelector("#logs-font-size-reset");
+  const filterForm = document.querySelector("#logs-filter-form");
+  const filterReset = document.querySelector("#logs-filter-reset");
   const settingsButton = document.querySelector("#table-settings-button");
   const settingsPopover = document.querySelector("#column-settings-popover");
   const settingsList = document.querySelector("#column-settings-list");
@@ -226,6 +230,10 @@
     const saved = loadWidths();
     cols.forEach((col) => {
       const key = col.dataset.col;
+      if (fixedColumnWidths[key]) {
+        col.style.width = `${fixedColumnWidths[key]}px`;
+        return;
+      }
       const width = Number(saved[key]);
       if (key && Number.isFinite(width) && width >= minWidth) {
         col.style.width = `${width}px`;
@@ -236,6 +244,8 @@
   function installHandles() {
     headers.forEach((th, index) => {
       if (index >= cols.length) return;
+      const key = th.dataset.col;
+      if (fixedColumnWidths[key]) return;
       const handle = document.createElement("span");
       handle.className = "column-resize-handle";
       handle.setAttribute("aria-hidden", "true");
@@ -368,6 +378,10 @@
     });
 
     refreshColumnRefs();
+    Object.entries(fixedColumnWidths).forEach(([key, width]) => {
+      const col = table.querySelector(`col[data-col="${key}"]`);
+      if (col) col.style.width = `${width}px`;
+    });
   }
 
   function applyLayout(layout) {
@@ -622,13 +636,11 @@
   function positionDomainPopover(button) {
     if (!domainPopover) return;
     const rect = button.getBoundingClientRect();
-    const popoverWidth = Math.min(700, window.innerWidth - 32);
-    const preferredLeft = rect.right + 10;
-    const fallbackLeft = rect.left - popoverWidth - 10;
-    const left = preferredLeft + popoverWidth <= window.innerWidth - 16
-      ? preferredLeft
-      : Math.max(16, fallbackLeft);
-    const opensRight = left === preferredLeft;
+    const popoverWidth = Math.min(760, window.innerWidth - 32);
+    const leftSide = rect.left - popoverWidth - 10;
+    const rightSide = rect.right + 10;
+    const opensRight = leftSide < 16 && rightSide + popoverWidth <= window.innerWidth - 16;
+    const left = opensRight ? rightSide : Math.max(16, leftSide);
     const top = Math.min(window.innerHeight - 88, Math.max(16, rect.top - 10));
     domainPopover.style.left = `${left}px`;
     domainPopover.style.top = `${top}px`;
@@ -689,7 +701,36 @@
     window.addEventListener("resize", scheduleDomainPopoverHide);
   }
 
+  function installFilterMemory() {
+    if (!filterForm || !filterReset) return;
+    const params = new URLSearchParams(window.location.search);
+    if (!params.toString()) {
+      const saved = sessionStorage.getItem(filterStateKey);
+      if (saved) {
+        window.location.replace(`/admin/logs?${saved}`);
+        return;
+      }
+    } else {
+      sessionStorage.setItem(filterStateKey, params.toString());
+    }
+
+    filterForm.addEventListener("submit", () => {
+      const data = new FormData(filterForm);
+      const next = new URLSearchParams();
+      data.forEach((value, key) => {
+        const text = String(value || "").trim();
+        if (text) next.set(key, text);
+      });
+      sessionStorage.setItem(filterStateKey, next.toString());
+    });
+
+    filterReset.addEventListener("click", () => {
+      sessionStorage.removeItem(filterStateKey);
+    });
+  }
+
   assignCellColumnKeys();
+  installFilterMemory();
   applyColumnOrder(readColumnOrder());
   applySavedWidths();
   installFontSizeControl();
