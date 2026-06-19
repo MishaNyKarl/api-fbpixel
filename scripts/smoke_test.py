@@ -112,6 +112,14 @@ def main_test():
         buyer_logs = client.get("/admin/logs", auth=("buyer1", "buyer-pass"))
         assert buyer_logs.status_code == 200, buyer_logs.text
 
+        quality = client.get("/admin/quality", auth=("admin", "admin"))
+        assert quality.status_code == 200, quality.text
+        assert "Tracking Quality" in quality.text
+
+        diagnostics_empty = client.get("/admin/diagnostics", auth=("admin", "admin"))
+        assert diagnostics_empty.status_code == 200, diagnostics_empty.text
+        assert "Click Diagnostics" in diagnostics_empty.text
+
         buyer_users = client.get("/admin/users", auth=("buyer1", "buyer-pass"))
         assert buyer_users.status_code == 403, buyer_users.text
 
@@ -131,6 +139,21 @@ def main_test():
         assert lead.status_code == 200, lead.text
         assert lead.json()["ok"] is True
         assert lead.json()["event_id"] == "smoke_click_1:Lead"
+
+        main.log_meta_to_redis({
+            "event_name": "Lead",
+            "event_id": "smoke_click_1:Lead",
+            "clickid": "smoke_click_1",
+            "fbclid": "smoke_fbclid",
+            "fbc": "fb.1.123.smoke_fbclid",
+            "tracker_pixel_id": "px_test",
+            "buyer_name": "admin",
+            "pixel_name": "Test Pixel",
+            "status_code": 200,
+        })
+        diagnostics = client.get("/admin/diagnostics?buyer=__all__&clickid=smoke_click_1", auth=("admin", "admin"))
+        assert diagnostics.status_code == 200, diagnostics.text
+        assert "smoke_click_1:Lead" in diagnostics.text
 
         duplicate = client.post(
             "/api/pixel/track",

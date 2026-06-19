@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Tracking Quality</h1>
+
+<p class="muted">
+  Качество считается по Redis-логам Meta CAPI. Weak matching = нет fbc и fbp.
+  Время показано в зоне {{ app_timezone }}.
+</p>
+
+<form method="get" action="/admin/quality" class="filters">
+  <input type="date" name="date_from" value="{{ date_from }}" title="Дата с">
+  <input type="date" name="date_to" value="{{ date_to }}" title="Дата по">
+  <input class="wide" name="tracker_pixel_id" value="{{ tracker_pixel_id }}" placeholder="tracker_pixel_id">
+  {% if current_user.is_admin %}
+  <select name="buyer">
+    <option value="mine" {% if buyer == "mine" %}selected{% endif %}>Мои: {{ current_user.buyer_name }}</option>
+    <option value="__all__" {% if buyer == "__all__" %}selected{% endif %}>Все баеры</option>
+    {% for item in buyers %}
+    <option value="{{ item }}" {% if buyer == item or resolved_buyer == item %}selected{% endif %}>{{ item }}</option>
+    {% endfor %}
+  </select>
+  {% else %}
+  <input value="Мои: {{ current_user.buyer_name }}" disabled>
+  {% endif %}
+  <button class="btn">Фильтр</button>
+  <a class="btn secondary" href="/admin/quality">Сбросить</a>
+</form>
+
+<div class="quick-filters">
+  <a class="btn secondary" href="/admin/quality?date_from={{ today_date }}&date_to={{ today_date }}&buyer={{ buyer }}">Сегодня</a>
+  <a class="btn secondary" href="/admin/quality?date_from={{ yesterday_date }}&date_to={{ yesterday_date }}&buyer={{ buyer }}">Вчера</a>
+  <a class="btn secondary" href="/admin/quality?date_from={{ week_date }}&date_to={{ today_date }}&buyer={{ buyer }}">7 дней</a>
+</div>
+
+<div class="metric-grid">
+  <div class="metric-card"><div class="label">Events</div><div class="value">{{ dashboard.totals.events }}</div></div>
+  <div class="metric-card"><div class="label">PageView</div><div class="value">{{ dashboard.totals.pageviews }}</div></div>
+  <div class="metric-card"><div class="label">Lead</div><div class="value">{{ dashboard.totals.leads }}</div></div>
+  <div class="metric-card"><div class="label">Purchase</div><div class="value">{{ dashboard.totals.purchases }}</div></div>
+  <div class="metric-card"><div class="label">Duplicates</div><div class="value">{{ dashboard.totals.duplicate_pct }}%</div></div>
+  <div class="metric-card"><div class="label">Errors</div><div class="value">{{ dashboard.totals.error_pct }}%</div></div>
+  <div class="metric-card"><div class="label">Weak matching</div><div class="value">{{ dashboard.totals.weak_matching_pct }}%</div></div>
+</div>
+
+<div class="table-wrap">
+  <table class="quality-table">
+    <thead>
+      <tr>
+        <th>pixel</th>
+        <th>buyer</th>
+        <th>events</th>
+        <th>PageView</th>
+        <th>Lead</th>
+        <th>Purchase</th>
+        <th>duplicates</th>
+        <th>no fbclid</th>
+        <th>no fbc</th>
+        <th>no fbp</th>
+        <th>weak</th>
+        <th>errors</th>
+        <th>last seen</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in dashboard.pixels %}
+      <tr>
+        <td><code>{{ row.tracker_pixel_id }}</code><br>{{ row.pixel_name }}</td>
+        <td>{{ row.buyer_name }}</td>
+        <td>{{ row.events }}</td>
+        <td>{{ row.pageviews }}</td>
+        <td>{{ row.leads }}</td>
+        <td>{{ row.purchases }}</td>
+        <td>{{ row.duplicate_pct }}%<div class="quality-bar warn"><span style="width: {{ row.duplicate_pct }}%"></span></div></td>
+        <td>{{ row.missing_fbclid_pct }}%</td>
+        <td>{{ row.missing_fbc_pct }}%</td>
+        <td>{{ row.missing_fbp_pct }}%</td>
+        <td>{{ row.weak_matching_pct }}%<div class="quality-bar warn"><span style="width: {{ row.weak_matching_pct }}%"></span></div></td>
+        <td>{{ row.error_pct }}%<div class="quality-bar bad"><span style="width: {{ row.error_pct }}%"></span></div></td>
+        <td>{{ row.last_seen }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

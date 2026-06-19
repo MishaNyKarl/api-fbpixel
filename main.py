@@ -720,6 +720,219 @@ def row_matches_filter(row: Dict[str, Any], key: str, expected: Optional[str]) -
     return str(row.get(key) or "").lower() == expected.lower()
 
 
+def safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except Exception:
+        return default
+
+
+def pct(part: int, total: int) -> float:
+    if total <= 0:
+        return 0.0
+    return round(part * 100 / total, 1)
+
+
+def selected_buyer_for_user(user: Dict[str, Any], buyer: Optional[str]) -> str:
+    selected = buyer or "mine"
+    if not user.get("is_admin"):
+        return user["buyer_name"]
+    if selected == "mine":
+        return user["buyer_name"]
+    return selected
+
+
+def filter_meta_logs(
+    logs: List[Dict[str, Any]],
+    user: Dict[str, Any],
+    buyer: Optional[str] = "mine",
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    event: Optional[str] = None,
+    tracker_pixel_id: Optional[str] = None,
+    clickid: Optional[str] = None,
+    domain: Optional[str] = None,
+) -> tuple[List[Dict[str, Any]], str]:
+    selected_buyer = selected_buyer_for_user(user, buyer)
+    start_ts, end_ts = app_date_bounds(date_from, date_to)
+    if start_ts is not None:
+        logs = [row for row in logs if safe_int(row.get("_ts")) >= start_ts]
+    if end_ts is not None:
+        logs = [row for row in logs if safe_int(row.get("_ts")) < end_ts]
+    if event:
+        logs = [row for row in logs if str(row.get("event_name", "")).lower() == event.lower()]
+    if tracker_pixel_id:
+        logs = [row for row in logs if row.get("tracker_pixel_id") == tracker_pixel_id]
+    if selected_buyer != "__all__":
+        logs = [row for row in logs if row_matches_filter(row, "buyer_name", selected_buyer)]
+    if clickid:
+        logs = [row for row in logs if row_matches_filter(row, "clickid", clickid)]
+    if domain:
+        logs = [row for row in logs if row_matches_filter(row, "source_domain", normalize_domain(domain))]
+    return logs, selected_buyer
+
+
+def available_buyers() -> List[str]:
+    return sorted({row.get("buyer_name") for row in load_all_meta_logs() if row.get("buyer_name")})
+
+
+def is_error_log(row: Dict[str, Any]) -> bool:
+    status_code = row.get("status_code")
+    return bool(
+        row.get("rejected")
+        or row.get("send_failed")
+        or safe_int(status_code, 200) == 0
+        or safe_int(status_code, 200) >= 400
+    )
+
+
+def is_weak_matching(row: Dict[str, Any]) -> bool:
+    return not row.get("fbc") and not row.get("fbp")
+
+
+def build_quality_dashboard(logs: List[Dict[str, Any]]) -> Dict[str, Any]:
+    pixels: Dict[str, Dict[str, Any]] = {}
+    totals = {
+        "events": 0,
+        "pageviews": 0,
+        "leads": 0,
+        "purchases": 0,
+        "duplicates": 0,
+        "errors": 0,
+        "weak_matching": 0,
+        "missing_fbclid": 0,
+        "missing_fbc": 0,
+        "missing_fbp": 0,
+    }
+
+    for row in logs:
+        key = row.get("tracker_pixel_id") or "unknown"
+        pixel = pixels.setdefault(
+            key,
+            {
+                "tracker_pixel_id": key,
+                "pixel_name": row.get("pixel_name") or "",
+                "buyer_name": row.get("buyer_name") or "",
+                "events": 0,
+                "pageviews": 0,
+                "leads": 0,
+                "purchases": 0,
+                "duplicates": 0,
+                "errors": 0,
+                "weak_matching": 0,
+                "missing_fbclid": 0,
+                "missing_fbc": 0,
+                "missing_fbp": 0,
+                "last_seen": row.get("when") or "",
+            },
+        )
+
+        event_name = str(row.get("event_name") or "")
+        event_key = event_name.lower()
+        pixel["pixel_name"] = pixel["pixel_name"] or row.get("pixel_name") or ""
+        pixel["buyer_name"] = pixel["buyer_name"] or row.get("buyer_name") or ""
+        pixel["events"] += 1
+        totals["events"] += 1
+        if event_key == "pageview":
+            pixel["pageviews"] += 1
+            totals["pageviews"] += 1
+        elif event_key == "lead":
+            pixel["leads"] += 1
+            totals["leads"] += 1
+        elif event_key == "purchase":
+            pixel["purchases"] += 1
+            totals["purchases"] += 1
+
+        if row.get("skipped_duplicate"):
+            pixel["duplicates"] += 1
+            totals["duplicates"] += 1
+        if is_error_log(row):
+            pixel["errors"] += 1
+            totals["errors"] += 1
+        if is_weak_matching(row):
+            pixel["weak_matching"] += 1
+            totals["weak_matching"] += 1
+        if not row.get("fbclid"):
+            pixel["missing_fbclid"] += 1
+            totals["missing_fbclid"] += 1
+        if not row.get("fbc"):
+            pixel["missing_fbc"] += 1
+            totals["missing_fbc"] += 1
+        if not row.get("fbp"):
+            pixel["missing_fbp"] += 1
+            totals["missing_fbp"] += 1
+
+    for item in pixels.values():
+        total = item["events"]
+        item["duplicate_pct"] = pct(item["duplicates"], total)
+        item["error_pct"] = pct(item["errors"], total)
+        item["weak_matching_pct"] = pct(item["weak_matching"], total)
+        item["missing_fbclid_pct"] = pct(item["missing_fbclid"], total)
+        item["missing_fbc_pct"] = pct(item["missing_fbc"], total)
+        item["missing_fbp_pct"] = pct(item["missing_fbp"], total)
+
+    totals["duplicate_pct"] = pct(totals["duplicates"], totals["events"])
+    totals["error_pct"] = pct(totals["errors"], totals["events"])
+    totals["weak_matching_pct"] = pct(totals["weak_matching"], totals["events"])
+    totals["missing_fbclid_pct"] = pct(totals["missing_fbclid"], totals["events"])
+    totals["missing_fbc_pct"] = pct(totals["missing_fbc"], totals["events"])
+    totals["missing_fbp_pct"] = pct(totals["missing_fbp"], totals["events"])
+
+    return {
+        "totals": totals,
+        "pixels": sorted(
+            pixels.values(),
+            key=lambda item: (item["errors"], item["weak_matching"], item["events"]),
+            reverse=True,
+        ),
+    }
+
+
+def build_click_diagnostics(logs: List[Dict[str, Any]], clickid: str) -> Dict[str, Any]:
+    timeline = sorted(logs, key=lambda row: safe_int(row.get("_ts")))
+    event_order = ["PageView", "Lead", "Purchase"]
+    present = {str(row.get("event_name") or "") for row in timeline}
+    missing_steps = [name for name in event_order if name not in present]
+    first = timeline[0] if timeline else {}
+    last = timeline[-1] if timeline else {}
+    issues: List[str] = []
+
+    if not timeline:
+        issues.append("По этому clickid нет событий в Redis-логах.")
+    if timeline and not any(row.get("fbclid") for row in timeline):
+        issues.append("В событиях нет fbclid. Атрибуция клика в Meta может быть слабее.")
+    if timeline and not any(row.get("fbc") for row in timeline):
+        issues.append("В событиях нет fbc. Meta хуже сопоставляет событие с кликом.")
+    if timeline and not any(row.get("fbp") for row in timeline):
+        issues.append("В событиях нет fbp. Browser matching слабее.")
+    if any(row.get("skipped_duplicate") for row in timeline):
+        issues.append("Есть дубли, часть событий была пропущена защитой от дублей.")
+    if any(is_error_log(row) for row in timeline):
+        issues.append("Есть ошибки или события, отклоненные до отправки в Meta.")
+    if "Lead" in missing_steps:
+        issues.append("Lead по этому clickid не найден в логах.")
+    if "Purchase" in missing_steps:
+        issues.append("Purchase по этому clickid не найден в логах.")
+
+    return {
+        "clickid": clickid,
+        "timeline": timeline,
+        "missing_steps": missing_steps,
+        "issues": issues,
+        "summary": {
+            "events": len(timeline),
+            "tracker_pixel_id": first.get("tracker_pixel_id") or "",
+            "buyer_name": first.get("buyer_name") or "",
+            "pixel_name": first.get("pixel_name") or "",
+            "first_seen": first.get("when") or "",
+            "last_seen": last.get("when") or "",
+            "duplicates": sum(1 for row in timeline if row.get("skipped_duplicate")),
+            "errors": sum(1 for row in timeline if is_error_log(row)),
+            "weak_matching": sum(1 for row in timeline if is_weak_matching(row)),
+        },
+    }
+
+
 def normalize_role(role: Optional[str]) -> str:
     return "admin" if role == "admin" else "buyer"
 
@@ -981,35 +1194,25 @@ async def admin_logs(
     else:
         logs = load_all_meta_logs()
 
-    selected_buyer = buyer or "mine"
-    if not user.get("is_admin"):
-        selected_buyer = user["buyer_name"]
-    elif selected_buyer == "mine":
-        selected_buyer = user["buyer_name"]
-
-    start_ts, end_ts = app_date_bounds(date_from, date_to)
-    if start_ts is not None:
-        logs = [row for row in logs if int(row.get("_ts") or 0) >= start_ts]
-    if end_ts is not None:
-        logs = [row for row in logs if int(row.get("_ts") or 0) < end_ts]
+    logs, selected_buyer = filter_meta_logs(
+        logs,
+        user=user,
+        buyer=buyer,
+        date_from=date_from,
+        date_to=date_to,
+        event=event,
+        tracker_pixel_id=tracker_pixel_id,
+        clickid=clickid,
+        domain=domain,
+    )
     if status_filter:
         logs = [row for row in logs if str(row.get("status_code", "")) == status_filter]
-    if event:
-        logs = [row for row in logs if str(row.get("event_name", "")).lower() == event.lower()]
-    if tracker_pixel_id:
-        logs = [row for row in logs if row.get("tracker_pixel_id") == tracker_pixel_id]
-    if selected_buyer != "__all__":
-        logs = [row for row in logs if row_matches_filter(row, "buyer_name", selected_buyer)]
-    if clickid:
-        logs = [row for row in logs if row_matches_filter(row, "clickid", clickid)]
     if fbclid:
         logs = [row for row in logs if row_matches_filter(row, "fbclid", fbclid)]
-    if domain:
-        logs = [row for row in logs if row_matches_filter(row, "source_domain", normalize_domain(domain))]
     total_filtered = len(logs)
     logs = logs[:limit]
 
-    buyers = sorted({row.get("buyer_name") for row in load_all_meta_logs() if row.get("buyer_name")})
+    buyers = available_buyers()
     date_shortcuts = app_date_shortcuts()
     return templates.TemplateResponse(
         name="logs.html",
@@ -1034,6 +1237,77 @@ async def admin_logs(
             "clickid": clickid or "",
             "fbclid": fbclid or "",
             "domain": domain or "",
+            "current_user": user,
+        },
+    )
+
+
+@app.get("/admin/quality", response_class=HTMLResponse)
+async def admin_quality_dashboard(
+    request: Request,
+    date_from: Optional[str] = Query(default=None),
+    date_to: Optional[str] = Query(default=None),
+    buyer: Optional[str] = Query(default="mine"),
+    tracker_pixel_id: Optional[str] = Query(default=None),
+    user: Dict[str, Any] = Depends(require_user),
+):
+    logs, selected_buyer = filter_meta_logs(
+        load_all_meta_logs(),
+        user=user,
+        buyer=buyer,
+        date_from=date_from,
+        date_to=date_to,
+        tracker_pixel_id=tracker_pixel_id,
+    )
+    dashboard = build_quality_dashboard(logs)
+    date_shortcuts = app_date_shortcuts()
+    return templates.TemplateResponse(
+        name="quality.html",
+        request=request,
+        context={
+            "dashboard": dashboard,
+            "date_from": date_from or "",
+            "date_to": date_to or "",
+            "today_date": date_shortcuts["today"],
+            "yesterday_date": date_shortcuts["yesterday"],
+            "week_date": date_shortcuts["week"],
+            "app_timezone": APP_TIMEZONE,
+            "buyer": buyer or "mine",
+            "resolved_buyer": selected_buyer,
+            "buyers": available_buyers(),
+            "tracker_pixel_id": tracker_pixel_id or "",
+            "current_user": user,
+        },
+    )
+
+
+@app.get("/admin/diagnostics", response_class=HTMLResponse)
+async def admin_click_diagnostics(
+    request: Request,
+    clickid: Optional[str] = Query(default=None),
+    buyer: Optional[str] = Query(default="mine"),
+    user: Dict[str, Any] = Depends(require_user),
+):
+    logs: List[Dict[str, Any]] = []
+    diagnostics = None
+    selected_buyer = selected_buyer_for_user(user, buyer)
+    if clickid:
+        logs, selected_buyer = filter_meta_logs(
+            load_clickid_meta_logs(clickid),
+            user=user,
+            buyer=buyer,
+            clickid=clickid,
+        )
+        diagnostics = build_click_diagnostics(logs, clickid)
+    return templates.TemplateResponse(
+        name="diagnostics.html",
+        request=request,
+        context={
+            "clickid": clickid or "",
+            "diagnostics": diagnostics,
+            "buyer": buyer or "mine",
+            "resolved_buyer": selected_buyer,
+            "buyers": available_buyers(),
             "current_user": user,
         },
     )

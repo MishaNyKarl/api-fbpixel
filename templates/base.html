@@ -106,6 +106,20 @@
     .column-toggle.is-hidden .eye-off-line { display: block; }
     .column-toggle .eye-off-line { display: none; }
     .is-column-hidden { display: none !important; }
+    .metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin: 16px 0; }
+    .metric-card { padding: 14px; border: 1px solid rgba(148,163,184,.35); border-radius: 16px; background: rgba(255,255,255,.74); box-shadow: 0 14px 34px rgba(15,23,42,.07); backdrop-filter: blur(18px) saturate(150%); }
+    .metric-card .label { color: #64748b; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; }
+    .metric-card .value { margin-top: 6px; font-size: 26px; font-weight: 800; }
+    .quality-table td, .quality-table th, .diagnostic-table td, .diagnostic-table th { font-size: 13px; }
+    .quality-bar { height: 7px; border-radius: 999px; background: rgba(148,163,184,.22); overflow: hidden; min-width: 90px; }
+    .quality-bar span { display: block; height: 100%; border-radius: inherit; background: #2563eb; }
+    .quality-bar.warn span { background: #d97706; }
+    .quality-bar.bad span { background: #dc2626; }
+    .timeline { display: grid; gap: 10px; margin: 16px 0; }
+    .timeline-item { padding: 12px 14px; border: 1px solid rgba(148,163,184,.32); border-radius: 16px; background: rgba(255,255,255,.78); box-shadow: 0 12px 28px rgba(15,23,42,.06); }
+    .timeline-head { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+    .issue-list { display: grid; gap: 8px; margin: 14px 0; padding: 0; list-style: none; }
+    .issue-list li { padding: 10px 12px; border-radius: 12px; background: rgba(254,243,199,.85); color: #92400e; }
   </style>
 </head>
 <body>
@@ -113,6 +127,8 @@
     <strong>API Pixel</strong>
     <a href="/admin/pixels">Пиксели</a>
     <a href="/admin/logs">Логи Meta</a>
+    <a href="/admin/quality">Quality</a>
+    <a href="/admin/diagnostics">Diagnostics</a>
     {% if current_user and current_user.is_admin %}
     <a href="/admin/users">Пользователи</a>
     {% endif %}

@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Click Diagnostics</h1>
+
+<p class="muted">
+  Диагностика строится по Redis-логам для clickid. Показывает путь PageView -> Lead -> Purchase и причины слабого матчинга.
+</p>
+
+<form method="get" action="/admin/diagnostics" class="filters">
+  <input class="wide" name="clickid" value="{{ clickid }}" placeholder="clickid">
+  {% if current_user.is_admin %}
+  <select name="buyer">
+    <option value="mine" {% if buyer == "mine" %}selected{% endif %}>Мои: {{ current_user.buyer_name }}</option>
+    <option value="__all__" {% if buyer == "__all__" %}selected{% endif %}>Все баеры</option>
+    {% for item in buyers %}
+    <option value="{{ item }}" {% if buyer == item or resolved_buyer == item %}selected{% endif %}>{{ item }}</option>
+    {% endfor %}
+  </select>
+  {% else %}
+  <input value="Мои: {{ current_user.buyer_name }}" disabled>
+  {% endif %}
+  <button class="btn">Найти</button>
+  <a class="btn secondary" href="/admin/diagnostics">Сбросить</a>
+</form>
+
+{% if diagnostics %}
+<div class="metric-grid">
+  <div class="metric-card"><div class="label">Events</div><div class="value">{{ diagnostics.summary.events }}</div></div>
+  <div class="metric-card"><div class="label">Duplicates</div><div class="value">{{ diagnostics.summary.duplicates }}</div></div>
+  <div class="metric-card"><div class="label">Errors</div><div class="value">{{ diagnostics.summary.errors }}</div></div>
+  <div class="metric-card"><div class="label">Weak matching</div><div class="value">{{ diagnostics.summary.weak_matching }}</div></div>
+</div>
+
+<p>
+  <strong>Pixel:</strong> <code>{{ diagnostics.summary.tracker_pixel_id }}</code>
+  {{ diagnostics.summary.pixel_name }}
+  <strong>Buyer:</strong> {{ diagnostics.summary.buyer_name }}
+</p>
+
+{% if diagnostics.issues %}
+<ul class="issue-list">
+  {% for issue in diagnostics.issues %}
+  <li>{{ issue }}</li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+<div class="timeline">
+  {% for row in diagnostics.timeline %}
+  <div class="timeline-item">
+    <div class="timeline-head">
+      <strong>{{ row.event_name or "unknown" }}</strong>
+      <span>{{ row.when or "" }}</span>
+      {% if row.skipped_duplicate %}<span class="pill">duplicate skipped</span>{% endif %}
+      {% if row.rejected %}<span class="pill">rejected</span>{% endif %}
+      {% if row.send_failed %}<span class="pill">send failed</span>{% endif %}
+      <span class="{% if row.status_code and row.status_code < 300 %}status-ok{% else %}status-bad{% endif %}">{{ row.status_code if row.status_code is not none else "" }}</span>
+    </div>
+    <table class="diagnostic-table">
+      <tbody>
+        <tr><th>event_id</th><td class="mono">{{ row.event_id or "" }}</td></tr>
+        <tr><th>tracker_pixel_id</th><td><code>{{ row.tracker_pixel_id or "" }}</code></td></tr>
+        <tr><th>fbclid</th><td class="mono">{{ row.fbclid or "" }}</td></tr>
+        <tr><th>fbc</th><td class="mono">{{ row.fbc or "" }}</td></tr>
+        <tr><th>fbp</th><td class="mono">{{ row.fbp or "" }}</td></tr>
+        <tr><th>domain</th><td>{{ row.source_domain or "" }}</td></tr>
+        <tr><th>fbtrace</th><td class="mono">{{ row.fbtrace_id or "" }}</td></tr>
+        <tr><th>Meta messages</th><td>{{ row.messages or "" }}</td></tr>
+        <tr><th>Error title</th><td>{{ row.error_user_title or "" }}</td></tr>
+        <tr><th>Error message</th><td>{{ row.error_user_msg or row.details or "" }}</td></tr>
+      </tbody>
+    </table>
+  </div>
+  {% endfor %}
+</div>
+{% elif clickid %}
+<div class="notice">По этому clickid ничего не найдено в доступных логах.</div>
+{% endif %}
+{% endblock %}
