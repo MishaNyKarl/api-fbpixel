@@ -41,22 +41,37 @@
 </div>
 
 <div class="table-wrap">
-  <table class="logs-table">
+  <table class="logs-table resizable-table" data-resize-key="api-pixel:logs-column-widths:v1">
+    <colgroup>
+      <col data-col="time" style="width: 160px">
+      <col data-col="status" style="width: 82px">
+      <col data-col="event" style="width: 110px">
+      <col data-col="buyer" style="width: 120px">
+      <col data-col="pixel" style="width: 140px">
+      <col data-col="tracker_pixel_id" style="width: 150px">
+      <col data-col="event_id" style="width: 240px">
+      <col data-col="clickid" style="width: 180px">
+      <col data-col="fbclid" style="width: 260px">
+      <col data-col="fbc" style="width: 260px">
+      <col data-col="domain" style="width: 190px">
+      <col data-col="fbtrace" style="width: 220px">
+      <col data-col="details" style="width: 220px">
+    </colgroup>
     <thead>
       <tr>
-        <th>time</th>
-        <th>status</th>
-        <th>event</th>
-        <th>buyer</th>
-        <th>pixel</th>
-        <th>tracker_pixel_id</th>
-        <th>event_id</th>
-        <th>clickid</th>
-        <th>fbclid</th>
-        <th>fbc</th>
-        <th>domain</th>
-        <th>fbtrace</th>
-        <th>details</th>
+        <th data-col="time">time</th>
+        <th data-col="status">status</th>
+        <th data-col="event">event</th>
+        <th data-col="buyer">buyer</th>
+        <th data-col="pixel">pixel</th>
+        <th data-col="tracker_pixel_id">tracker_pixel_id</th>
+        <th data-col="event_id">event_id</th>
+        <th data-col="clickid">clickid</th>
+        <th data-col="fbclid">fbclid</th>
+        <th data-col="fbc">fbc</th>
+        <th data-col="domain">domain</th>
+        <th data-col="fbtrace">fbtrace</th>
+        <th data-col="details">details</th>
       </tr>
     </thead>
     <tbody>
@@ -106,4 +121,87 @@
     </tbody>
   </table>
 </div>
+
+<script>
+(() => {
+  const table = document.querySelector(".resizable-table");
+  if (!table) return;
+
+  const storageKey = table.dataset.resizeKey || "api-pixel:logs-column-widths:v1";
+  const minWidth = 64;
+  const cols = Array.from(table.querySelectorAll("colgroup col"));
+  const headers = Array.from(table.querySelectorAll("thead th"));
+
+  function loadWidths() {
+    try {
+      return JSON.parse(sessionStorage.getItem(storageKey) || "{}");
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function saveWidths(widths) {
+    sessionStorage.setItem(storageKey, JSON.stringify(widths));
+  }
+
+  function currentWidths() {
+    const widths = {};
+    cols.forEach((col) => {
+      const key = col.dataset.col;
+      if (key) widths[key] = Math.round(col.getBoundingClientRect().width);
+    });
+    return widths;
+  }
+
+  function applySavedWidths() {
+    const saved = loadWidths();
+    cols.forEach((col) => {
+      const key = col.dataset.col;
+      const width = Number(saved[key]);
+      if (key && Number.isFinite(width) && width >= minWidth) {
+        col.style.width = `${width}px`;
+      }
+    });
+  }
+
+  function installHandles() {
+    headers.forEach((th, index) => {
+      if (index >= cols.length) return;
+      const handle = document.createElement("span");
+      handle.className = "column-resize-handle";
+      handle.setAttribute("aria-hidden", "true");
+      th.appendChild(handle);
+
+      handle.addEventListener("mousedown", (event) => {
+        event.preventDefault();
+        const col = cols[index];
+        const startX = event.clientX;
+        const startWidth = col.getBoundingClientRect().width;
+
+        document.body.classList.add("column-resizing");
+        th.classList.add("is-resizing");
+
+        function onMove(moveEvent) {
+          const nextWidth = Math.max(minWidth, startWidth + moveEvent.clientX - startX);
+          col.style.width = `${Math.round(nextWidth)}px`;
+        }
+
+        function onUp() {
+          document.removeEventListener("mousemove", onMove);
+          document.removeEventListener("mouseup", onUp);
+          document.body.classList.remove("column-resizing");
+          th.classList.remove("is-resizing");
+          saveWidths(currentWidths());
+        }
+
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+      });
+    });
+  }
+
+  applySavedWidths();
+  installHandles();
+})();
+</script>
 {% endblock %}

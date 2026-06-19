@@ -37,7 +37,10 @@
     .filters input, .filters select { min-width: 0; }
     .table-wrap { overflow: auto; border: 1px solid #d7deea; background: #fff; }
     .table-wrap table { border: 0; min-width: 1500px; }
+    .resizable-table { table-layout: fixed; width: max-content; }
     .logs-table th, .logs-table td { padding: 8px 9px; font-size: 13px; }
+    .logs-table th { position: relative; user-select: none; }
+    .logs-table td { overflow: hidden; text-overflow: ellipsis; }
     .mono { font-family: Consolas, Monaco, monospace; }
     .long { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .duplicate-row { background: #fffbeb; }
@@ -48,6 +51,15 @@
     .domain-details[open] .plus::before { content: "-"; }
     .domain-details[open] .plus { font-size: 0; }
     .full-url { display: block; max-width: 420px; margin-top: 6px; color: #2563eb; white-space: normal; overflow-wrap: anywhere; }
+    .column-resize-handle { position: absolute; top: 0; right: -5px; width: 10px; height: 100%; cursor: col-resize; z-index: 2; }
+    .column-resize-handle::before { content: ""; position: absolute; top: 7px; bottom: 7px; left: 4px; width: 2px; border-radius: 2px; background: transparent; }
+    .column-resize-handle::after { content: "↔"; position: absolute; top: 50%; right: -10px; transform: translateY(-50%); padding: 1px 4px; border-radius: 4px; background: #2563eb; color: #fff; font-size: 11px; line-height: 1.2; opacity: 0; pointer-events: none; }
+    .logs-table th:hover .column-resize-handle::before,
+    .logs-table th.is-resizing .column-resize-handle::before { background: #2563eb; }
+    .logs-table th:hover .column-resize-handle::after,
+    .logs-table th.is-resizing .column-resize-handle::after { opacity: 1; }
+    .column-resizing { cursor: col-resize !important; user-select: none; }
+    .column-resizing * { cursor: col-resize !important; }
   </style>
 </head>
 <body>
