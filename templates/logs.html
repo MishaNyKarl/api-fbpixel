@@ -622,7 +622,7 @@
   function positionDomainPopover(button) {
     if (!domainPopover) return;
     const rect = button.getBoundingClientRect();
-    const popoverWidth = Math.min(760, window.innerWidth - 32);
+    const popoverWidth = Math.min(700, window.innerWidth - 32);
     const preferredLeft = rect.right + 10;
     const fallbackLeft = rect.left - popoverWidth - 10;
     const left = preferredLeft + popoverWidth <= window.innerWidth - 16
@@ -632,7 +632,7 @@
     const top = Math.min(window.innerHeight - 88, Math.max(16, rect.top - 10));
     domainPopover.style.left = `${left}px`;
     domainPopover.style.top = `${top}px`;
-    domainPopover.style.maxWidth = `${popoverWidth}px`;
+    domainPopover.style.width = `${popoverWidth}px`;
     domainPopover.classList.toggle("copy-left", opensRight);
     domainPopover.classList.toggle("copy-right", !opensRight);
   }
