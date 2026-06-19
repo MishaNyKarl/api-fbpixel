@@ -55,6 +55,24 @@
     </svg>
   </button>
   <div class="column-settings-popover" id="column-settings-popover" aria-hidden="true">
+    <div class="layout-presets">
+      <div class="layout-presets-head">
+        <p class="column-settings-title">Сохраненные шаблоны</p>
+        <button class="layout-save-button" type="button" id="layout-save-button" aria-label="Сохранить шаблон">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 5v14M5 12h14" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </div>
+      <select id="layout-presets-select" aria-label="Сохраненные шаблоны">
+        <option value="">Нет выбранного шаблона</option>
+      </select>
+    </div>
+    <div class="column-filter-tabs" role="group" aria-label="Фильтр столбцов">
+      <button type="button" class="is-active" data-filter="all">All</button>
+      <button type="button" data-filter="visible">Visible</button>
+      <button type="button" data-filter="hidden">Hidden</button>
+    </div>
     <p class="column-settings-title">Столбцы таблицы</p>
     <div class="column-settings-list" id="column-settings-list"></div>
   </div>
@@ -63,7 +81,7 @@
     <a class="full-url" href="#" target="_blank" rel="noopener noreferrer"></a>
   </div>
   <div class="table-wrap">
-    <table class="logs-table resizable-table" data-resize-key="api-pixel:logs-column-widths:v1" data-columns-key="api-pixel:logs-visible-columns:v1">
+    <table class="logs-table resizable-table" data-resize-key="api-pixel:logs-column-widths:v1" data-columns-key="api-pixel:logs-visible-columns:v1" data-order-key="api-pixel:logs-column-order:v1">
     <colgroup>
       <col data-col="time" style="width: 160px">
       <col data-col="status" style="width: 82px">
@@ -155,18 +173,25 @@
   const table = document.querySelector(".resizable-table");
   if (!table) return;
 
+  const currentUsername = {{ current_user.username|default("guest")|tojson }};
   const storageKey = table.dataset.resizeKey || "api-pixel:logs-column-widths:v1";
   const columnsKey = table.dataset.columnsKey || "api-pixel:logs-visible-columns:v1";
+  const orderKey = table.dataset.orderKey || "api-pixel:logs-column-order:v1";
+  const templatesKey = `api-pixel:logs-layout-templates:${currentUsername}`;
+  const activeTemplateKey = `api-pixel:logs-active-layout-template:${currentUsername}`;
   const fontSizeKey = "api-pixel:logs-font-size:v1";
   const minWidth = 64;
-  const cols = Array.from(table.querySelectorAll("colgroup col"));
-  const headers = Array.from(table.querySelectorAll("thead th"));
+  let cols = Array.from(table.querySelectorAll("colgroup col"));
+  let headers = Array.from(table.querySelectorAll("thead th"));
   const fontInput = document.querySelector("#logs-font-size");
   const fontOutput = document.querySelector("#logs-font-size-value");
   const fontReset = document.querySelector("#logs-font-size-reset");
   const settingsButton = document.querySelector("#table-settings-button");
   const settingsPopover = document.querySelector("#column-settings-popover");
   const settingsList = document.querySelector("#column-settings-list");
+  const filterButtons = Array.from(document.querySelectorAll(".column-filter-tabs button"));
+  const layoutSaveButton = document.querySelector("#layout-save-button");
+  const layoutPresetsSelect = document.querySelector("#layout-presets-select");
   const domainPopover = document.querySelector("#domain-popover");
   const domainPopoverLink = domainPopover ? domainPopover.querySelector(".full-url") : null;
   const domainCopyButton = domainPopover ? domainPopover.querySelector(".copy-url") : null;
@@ -261,8 +286,17 @@
 
     if (fontReset) {
       fontReset.addEventListener("click", () => {
+        const template = activeTemplate();
+        if (template) {
+          applyLayout(template.layout);
+          return;
+        }
         sessionStorage.removeItem(fontSizeKey);
+        sessionStorage.removeItem(storageKey);
+        sessionStorage.removeItem(columnsKey);
+        sessionStorage.removeItem(orderKey);
         applyFontSize(13);
+        applyColumnVisibility(new Set());
       });
     }
   }
@@ -278,6 +312,150 @@
 
   function saveHiddenColumns(hidden) {
     sessionStorage.setItem(columnsKey, JSON.stringify(Array.from(hidden)));
+  }
+
+  function refreshColumnRefs() {
+    cols = Array.from(table.querySelectorAll("colgroup col"));
+    headers = Array.from(table.querySelectorAll("thead th"));
+  }
+
+  function readColumnOrder() {
+    try {
+      const value = JSON.parse(sessionStorage.getItem(orderKey) || "[]");
+      return Array.isArray(value) ? value : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function saveColumnOrder() {
+    sessionStorage.setItem(orderKey, JSON.stringify(cols.map((col) => col.dataset.col).filter(Boolean)));
+  }
+
+  function snapshotLayout() {
+    return {
+      fontSize: Number(fontInput ? fontInput.value : 13) || 13,
+      hiddenColumns: Array.from(readHiddenColumns()),
+      widths: currentWidths(),
+      order: cols.map((col) => col.dataset.col).filter(Boolean),
+    };
+  }
+
+  function applyColumnOrder(order) {
+    const normalizedOrder = Array.isArray(order) ? order.filter(Boolean) : [];
+    if (!normalizedOrder.length) return;
+
+    const colgroup = table.querySelector("colgroup");
+    const headRow = table.querySelector("thead tr");
+    const rows = Array.from(table.querySelectorAll("tbody tr"));
+    const knownKeys = cols.map((col) => col.dataset.col).filter(Boolean);
+    const finalOrder = normalizedOrder.concat(knownKeys.filter((key) => !normalizedOrder.includes(key)));
+
+    finalOrder.forEach((key) => {
+      const col = colgroup.querySelector(`col[data-col="${key}"]`);
+      const th = headRow.querySelector(`th[data-col="${key}"]`);
+      if (col) colgroup.appendChild(col);
+      if (th) headRow.appendChild(th);
+      rows.forEach((row) => {
+        const cell = row.querySelector(`td[data-col="${key}"]`);
+        if (cell) row.appendChild(cell);
+      });
+    });
+
+    refreshColumnRefs();
+  }
+
+  function applyLayout(layout) {
+    if (!layout) return;
+    assignCellColumnKeys();
+    applyColumnOrder(layout.order);
+    if (layout.widths) {
+      cols.forEach((col) => {
+        const width = Number(layout.widths[col.dataset.col]);
+        if (Number.isFinite(width) && width >= minWidth) col.style.width = `${width}px`;
+      });
+      saveWidths(layout.widths);
+    }
+    if (layout.hiddenColumns) {
+      const hidden = new Set(layout.hiddenColumns);
+      saveHiddenColumns(hidden);
+      applyColumnVisibility(hidden);
+    }
+    if (layout.fontSize) {
+      const size = applyFontSize(layout.fontSize);
+      sessionStorage.setItem(fontSizeKey, String(size));
+    }
+    saveColumnOrder();
+    renderColumnSettings();
+  }
+
+  function loadTemplates() {
+    try {
+      const value = JSON.parse(localStorage.getItem(templatesKey) || "[]");
+      return Array.isArray(value) ? value : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function saveTemplates(templates) {
+    localStorage.setItem(templatesKey, JSON.stringify(templates));
+  }
+
+  function activeTemplate() {
+    const activeId = localStorage.getItem(activeTemplateKey);
+    return loadTemplates().find((item) => item.id === activeId) || null;
+  }
+
+  function renderTemplateSelect() {
+    if (!layoutPresetsSelect) return;
+    const activeId = localStorage.getItem(activeTemplateKey) || "";
+    const templates = loadTemplates();
+    layoutPresetsSelect.innerHTML = '<option value="">Нет выбранного шаблона</option>';
+    templates.forEach((item) => {
+      const option = document.createElement("option");
+      option.value = item.id;
+      option.textContent = item.name;
+      option.selected = item.id === activeId;
+      layoutPresetsSelect.appendChild(option);
+    });
+  }
+
+  function installLayoutTemplates() {
+    renderTemplateSelect();
+    const selectedTemplate = activeTemplate();
+    if (selectedTemplate) applyLayout(selectedTemplate.layout);
+
+    if (layoutSaveButton) {
+      layoutSaveButton.addEventListener("click", () => {
+        const name = prompt("Название шаблона", `Шаблон ${loadTemplates().length + 1}`);
+        if (!name) return;
+        const templates = loadTemplates();
+        const item = {
+          id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          name,
+          layout: snapshotLayout(),
+        };
+        templates.push(item);
+        saveTemplates(templates);
+        localStorage.setItem(activeTemplateKey, item.id);
+        renderTemplateSelect();
+      });
+    }
+
+    if (layoutPresetsSelect) {
+      layoutPresetsSelect.addEventListener("change", () => {
+        const id = layoutPresetsSelect.value;
+        if (!id) {
+          localStorage.removeItem(activeTemplateKey);
+          return;
+        }
+        const item = loadTemplates().find((template) => template.id === id);
+        if (!item) return;
+        localStorage.setItem(activeTemplateKey, id);
+        applyLayout(item.layout);
+      });
+    }
   }
 
   function assignCellColumnKeys() {
@@ -306,6 +484,7 @@
         button.setAttribute("aria-pressed", String(!isHidden));
       });
     }
+    applyColumnFilter();
   }
 
   function eyeIcon() {
@@ -318,8 +497,42 @@
     `;
   }
 
-  function installColumnSettings() {
-    if (!settingsButton || !settingsPopover || !settingsList) return;
+  function burgerIcon() {
+    return `
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M8 7h8M8 12h8M8 17h8" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+    `;
+  }
+
+  function currentColumnFilter() {
+    const active = filterButtons.find((button) => button.classList.contains("is-active"));
+    return active ? active.dataset.filter : "all";
+  }
+
+  function applyColumnFilter() {
+    if (!settingsList) return;
+    const filter = currentColumnFilter();
+    settingsList.querySelectorAll(".column-toggle").forEach((item) => {
+      const hidden = item.classList.contains("is-hidden");
+      const shouldHide = (filter === "visible" && hidden) || (filter === "hidden" && !hidden);
+      item.classList.toggle("is-filter-hidden", shouldHide);
+    });
+  }
+
+  function moveColumnInSettings(dragged, target, event) {
+    if (!dragged || !target || dragged === target) return;
+    const targetRect = target.getBoundingClientRect();
+    const after = event.clientY > targetRect.top + targetRect.height / 2;
+    settingsList.insertBefore(dragged, after ? target.nextSibling : target);
+    const order = Array.from(settingsList.querySelectorAll(".column-toggle")).map((item) => item.dataset.col);
+    applyColumnOrder(order);
+    saveColumnOrder();
+    applyColumnVisibility(readHiddenColumns());
+  }
+
+  function renderColumnSettings() {
+    if (!settingsList) return;
     const hidden = readHiddenColumns();
     assignCellColumnKeys();
     settingsList.innerHTML = "";
@@ -327,12 +540,16 @@
     headers.forEach((th) => {
       const key = th.dataset.col;
       if (!key) return;
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "column-toggle";
-      button.dataset.col = key;
-      button.innerHTML = `<span>${th.textContent.trim()}</span>${eyeIcon()}`;
-      button.addEventListener("click", () => {
+      const item = document.createElement("div");
+      item.className = "column-toggle";
+      item.dataset.col = key;
+      item.innerHTML = `
+        <span class="column-name">${th.textContent.trim()}</span>
+        <button class="column-eye-button" type="button" aria-label="Показать или скрыть столбец">${eyeIcon()}</button>
+        <span class="column-drag-handle" draggable="true" aria-label="Перетащить столбец">${burgerIcon()}</span>
+      `;
+
+      item.querySelector(".column-eye-button").addEventListener("click", () => {
         if (hidden.has(key)) {
           hidden.delete(key);
         } else {
@@ -341,7 +558,38 @@
         saveHiddenColumns(hidden);
         applyColumnVisibility(hidden);
       });
-      settingsList.appendChild(button);
+
+      item.querySelector(".column-drag-handle").addEventListener("dragstart", (event) => {
+        item.classList.add("is-dragging");
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", key);
+      });
+      item.querySelector(".column-drag-handle").addEventListener("dragend", () => item.classList.remove("is-dragging"));
+      item.addEventListener("dragover", (event) => event.preventDefault());
+      item.addEventListener("drop", (event) => {
+        event.preventDefault();
+        const draggedKey = event.dataTransfer.getData("text/plain");
+        const dragged = settingsList.querySelector(`.column-toggle[data-col="${draggedKey}"]`);
+        moveColumnInSettings(dragged, item, event);
+      });
+
+      settingsList.appendChild(item);
+    });
+
+    applyColumnVisibility(hidden);
+  }
+
+  function installColumnSettings() {
+    if (!settingsButton || !settingsPopover || !settingsList) return;
+    applyColumnOrder(readColumnOrder());
+    renderColumnSettings();
+
+    filterButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        filterButtons.forEach((item) => item.classList.remove("is-active"));
+        button.classList.add("is-active");
+        applyColumnFilter();
+      });
     });
 
     settingsButton.addEventListener("click", (event) => {
@@ -362,7 +610,7 @@
       settingsButton.setAttribute("aria-expanded", "false");
     });
 
-    applyColumnVisibility(hidden);
+    applyColumnVisibility(readHiddenColumns());
   }
 
   function positionDomainPopover(button) {
@@ -431,10 +679,13 @@
     window.addEventListener("resize", scheduleDomainPopoverHide);
   }
 
+  assignCellColumnKeys();
+  applyColumnOrder(readColumnOrder());
   applySavedWidths();
-  installHandles();
   installFontSizeControl();
+  installLayoutTemplates();
   installColumnSettings();
+  installHandles();
   installDomainPopover();
 })();
 </script>

@@ -52,7 +52,7 @@
     .domain-link-button { width: 22px; height: 22px; margin-left: auto; border: 1px solid rgba(37,99,235,.16); border-radius: 999px; background: rgba(219,234,254,.68); color: #2563eb; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; transition: background .15s ease, color .15s ease, transform .15s ease; }
     .domain-link-button:hover, .domain-link-button:focus { background: #2563eb; color: #fff; transform: translateY(-1px); outline: 0; }
     .domain-link-button svg { width: 13px; height: 13px; stroke: currentColor; }
-    .domain-popover { position: fixed; z-index: 50; display: none; max-width: min(760px, calc(100vw - 32px)); padding: 12px; border: 1px solid rgba(255,255,255,.62); border-radius: 18px; background: rgba(248,250,252,.74); box-shadow: 0 22px 60px rgba(15,23,42,.22); backdrop-filter: blur(24px) saturate(160%); }
+    .domain-popover { position: fixed; z-index: 50; display: none; max-width: min(760px, calc(100vw - 32px)); padding: 12px; border: 1px solid rgba(255,255,255,.62); border-radius: 18px; background: rgba(248,250,252,.74); box-shadow: 0 22px 60px rgba(15,23,42,.22); backdrop-filter: blur(24px) saturate(160%); opacity: .9; }
     .domain-popover.is-open { display: flex; align-items: center; gap: 10px; }
     .domain-popover .copy-url { border: 0; border-radius: 999px; padding: 8px 12px; background: rgba(37,99,235,.92); color: #fff; cursor: pointer; white-space: nowrap; }
     .domain-popover .full-url { color: #0f172a; text-decoration: none; overflow-wrap: anywhere; line-height: 1.35; }
@@ -73,13 +73,29 @@
     .table-settings-button { position: absolute; right: 12px; top: 12px; z-index: 5; width: 36px; height: 36px; border: 1px solid rgba(148,163,184,.36); border-radius: 999px; background: rgba(255,255,255,.38); color: rgba(15,23,42,.58); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; opacity: .55; backdrop-filter: blur(16px); transition: opacity .15s ease, color .15s ease, background .15s ease, transform .15s ease; }
     .table-settings-button:hover, .table-settings-button:focus, .table-settings-button.is-open { opacity: 1; color: #0f172a; background: rgba(255,255,255,.86); transform: translateY(-1px); outline: 0; }
     .table-settings-button svg { width: 18px; height: 18px; stroke: currentColor; }
-    .column-settings-popover { position: absolute; right: 12px; top: 56px; z-index: 20; display: none; width: min(320px, calc(100vw - 48px)); max-height: min(520px, calc(100vh - 160px)); overflow: auto; padding: 14px; border: 1px solid rgba(255,255,255,.62); border-radius: 22px; background: rgba(248,250,252,.78); box-shadow: 0 24px 70px rgba(15,23,42,.20); backdrop-filter: blur(24px) saturate(160%); }
+    .column-settings-popover { position: absolute; right: 12px; top: 56px; z-index: 20; display: none; width: min(320px, calc(100vw - 48px)); max-height: min(520px, calc(100vh - 160px)); overflow: auto; padding: 14px; border: 1px solid rgba(255,255,255,.62); border-radius: 22px; background: rgba(248,250,252,.78); box-shadow: 0 24px 70px rgba(15,23,42,.20); backdrop-filter: blur(24px) saturate(160%); opacity: .9; }
     .column-settings-popover.is-open { display: block; }
     .column-settings-title { margin: 0 0 10px; font-size: 15px; font-weight: 800; }
+    .layout-presets { display: grid; gap: 8px; margin-bottom: 14px; }
+    .layout-presets-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .layout-presets-head .column-settings-title { margin: 0; }
+    .layout-save-button { width: 32px; height: 32px; border: 0; border-radius: 999px; background: rgba(37,99,235,.86); color: #fff; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 10px 24px rgba(37,99,235,.18); opacity: .9; }
+    .layout-save-button svg { width: 17px; height: 17px; stroke: currentColor; }
+    .column-filter-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; padding: 4px; margin: 8px 0 14px; border-radius: 999px; background: rgba(15,23,42,.08); box-shadow: inset 0 1px 2px rgba(15,23,42,.08); }
+    .column-filter-tabs button { border: 0; border-radius: 999px; padding: 8px 10px; background: transparent; color: #475569; cursor: pointer; font: inherit; font-size: 13px; }
+    .column-filter-tabs button.is-active { background: rgba(255,255,255,.92); color: #0f172a; box-shadow: 0 6px 18px rgba(15,23,42,.12); }
     .column-settings-list { display: grid; gap: 6px; }
-    .column-toggle { width: 100%; border: 0; border-radius: 12px; padding: 9px 10px; background: rgba(255,255,255,.58); color: #0f172a; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 12px; font: inherit; text-align: left; }
+    .column-toggle { width: 100%; border: 0; border-radius: 12px; padding: 9px 10px; background: rgba(255,255,255,.58); color: #0f172a; display: grid; grid-template-columns: minmax(0, 1fr) 24px 24px; align-items: center; gap: 10px; font: inherit; text-align: left; }
     .column-toggle:hover { background: rgba(255,255,255,.95); }
-    .column-toggle .eye { width: 19px; height: 19px; color: #2563eb; flex: 0 0 auto; }
+    .column-toggle.is-dragging { opacity: .45; }
+    .column-toggle.is-filter-hidden { display: none; }
+    .column-toggle .column-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .column-eye-button, .column-drag-handle { width: 24px; height: 24px; border: 0; border-radius: 8px; background: transparent; color: #2563eb; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+    .column-eye-button { cursor: pointer; }
+    .column-drag-handle { color: #64748b; cursor: grab; }
+    .column-drag-handle:active { cursor: grabbing; }
+    .column-drag-handle svg { width: 18px; height: 18px; stroke: currentColor; }
+    .column-toggle .eye { width: 19px; height: 19px; color: currentColor; flex: 0 0 auto; }
     .column-toggle.is-hidden { color: #64748b; }
     .column-toggle.is-hidden .eye-off-line { display: block; }
     .column-toggle .eye-off-line { display: none; }
