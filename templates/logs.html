@@ -83,7 +83,7 @@
   <div class="table-wrap">
     <table class="logs-table resizable-table" data-resize-key="api-pixel:logs-column-widths:v1" data-columns-key="api-pixel:logs-visible-columns:v1" data-order-key="api-pixel:logs-column-order:v1">
     <colgroup>
-      <col data-col="row_number" style="width: 28px">
+      <col data-col="row_number" style="width: 20px">
       <col data-col="time" style="width: 160px">
       <col data-col="status" style="width: 82px">
       <col data-col="event" style="width: 110px">
@@ -185,7 +185,7 @@
   const fontSizeKey = "api-pixel:logs-font-size:v1";
   const filterStateKey = `api-pixel:logs-last-filter:${currentUsername}`;
   const minWidth = 40;
-  const fixedColumnWidths = { row_number: 28 };
+  const fixedColumnWidths = { row_number: 20 };
   let cols = Array.from(table.querySelectorAll("colgroup col"));
   let headers = Array.from(table.querySelectorAll("thead th"));
   const fontInput = document.querySelector("#logs-font-size");
