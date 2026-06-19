@@ -41,6 +41,13 @@
     .mono { font-family: Consolas, Monaco, monospace; }
     .long { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .duplicate-row { background: #fffbeb; }
+    .domain-details summary { cursor: pointer; list-style: none; white-space: nowrap; }
+    .domain-details summary::-webkit-details-marker { display: none; }
+    .domain-details .plus { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 4px; background: #dbeafe; color: #1d4ed8; font-weight: 700; margin-right: 4px; }
+    .domain-details[open] .plus { background: #fee2e2; color: #b91c1c; }
+    .domain-details[open] .plus::before { content: "-"; }
+    .domain-details[open] .plus { font-size: 0; }
+    .full-url { display: block; max-width: 420px; margin-top: 6px; color: #2563eb; white-space: normal; overflow-wrap: anywhere; }
   </style>
 </head>
 <body>

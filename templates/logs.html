@@ -80,7 +80,16 @@
         <td class="mono">{{ row.clickid or "" }}</td>
         <td class="mono long">{{ row.fbclid or "" }}</td>
         <td class="mono long">{{ row.fbc or "" }}</td>
-        <td>{{ row.source_domain or "" }}</td>
+        <td>
+          {% if row.event_source_url %}
+          <details class="domain-details">
+            <summary><span class="plus">+</span> {{ row.source_domain or "source" }}</summary>
+            <a class="mono full-url" href="{{ row.event_source_url }}" target="_blank" rel="noopener noreferrer">{{ row.event_source_url }}</a>
+          </details>
+          {% else %}
+          {{ row.source_domain or "" }}
+          {% endif %}
+        </td>
         <td class="mono long">{{ row.fbtrace_id or "" }}</td>
         <td>
           {% if row.skipped_duplicate %}<span class="pill">duplicate skipped</span>{% endif %}
