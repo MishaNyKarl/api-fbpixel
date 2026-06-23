@@ -142,6 +142,12 @@ def main_test():
         assert lead.status_code == 200, lead.text
         assert lead.json()["ok"] is True
         assert lead.json()["event_id"] == "smoke_click_1:Lead"
+        logged_payload = main.meta_payload_for_log({
+            "data": [{"event_name": "Lead"}],
+            "access_token": "TEST_ACCESS_TOKEN_123456",
+        })
+        assert "TEST_ACCESS_TOKEN_123456" not in logged_payload
+        assert "TEST...3456" in logged_payload
 
         main.log_meta_to_redis({
             "event_name": "Lead",
@@ -198,6 +204,7 @@ def main_test():
             "tracker_pixel_id": "px_test",
             "buyer_name": "admin",
             "status_code": 200,
+            "sended": logged_payload,
         })
         for i in range(150):
             main.log_meta_to_redis({
@@ -213,6 +220,9 @@ def main_test():
         )
         assert lead_logs.status_code == 200, lead_logs.text
         assert "older_lead_click" in lead_logs.text
+        assert '<th data-col="sended">sended</th>' in lead_logs.text
+        assert "TEST_ACCESS_TOKEN_123456" not in lead_logs.text
+        assert "TEST...3456" in lead_logs.text
         assert "pageview_click_149" not in lead_logs.text
 
         print("smoke ok")

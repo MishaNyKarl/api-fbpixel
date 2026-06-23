@@ -96,6 +96,7 @@
       <col data-col="fbc" style="width: 150px">
       <col data-col="domain" style="width: 190px">
       <col data-col="fbtrace" style="width: 220px">
+      <col data-col="sended" style="width: 240px">
       <col data-col="details" style="width: 220px">
     </colgroup>
     <thead>
@@ -113,6 +114,7 @@
         <th data-col="fbc">fbc</th>
         <th data-col="domain">domain</th>
         <th data-col="fbtrace">fbtrace</th>
+        <th data-col="sended">sended</th>
         <th data-col="details">details</th>
       </tr>
     </thead>
@@ -154,6 +156,14 @@
           {% endif %}
         </td>
         <td class="mono long">{{ row.fbtrace_id or "" }}</td>
+        <td class="payload-cell">
+          {% if row.sended %}
+          <details>
+            <summary>payload</summary>
+            <pre class="payload-view">{{ row.sended }}</pre>
+          </details>
+          {% endif %}
+        </td>
         <td>
           {% if row.skipped_duplicate %}<span class="pill">duplicate skipped</span>{% endif %}
           {% if row.rejected %}<span class="pill">rejected before Meta</span>{% endif %}

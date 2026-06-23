@@ -536,6 +536,13 @@ def mask_token(token: Optional[str]) -> str:
     return f"{token[:4]}...{token[-4:]}"
 
 
+def meta_payload_for_log(payload: Dict[str, Any]) -> str:
+    logged_payload = dict(payload)
+    if logged_payload.get("access_token"):
+        logged_payload["access_token"] = mask_token(str(logged_payload["access_token"]))
+    return json.dumps(logged_payload, ensure_ascii=False, separators=(",", ":"))
+
+
 def public_meta_result(status_code: Optional[int], parsed: Any, text: str) -> Dict[str, Any]:
     fbtrace_id = None
     events_received = None
@@ -577,6 +584,7 @@ async def send_to_meta(
     payload = {"data": [event], "access_token": meta_access_token}
     if META_TEST_EVENT_CODE:
         payload["test_event_code"] = META_TEST_EVENT_CODE
+    sended = meta_payload_for_log(payload)
 
     try:
         async with httpx.AsyncClient(timeout=10) as client:
@@ -608,6 +616,7 @@ async def send_to_meta(
             "fbc": context.get("fbc"),
             "event_source_url": context.get("event_source_url") or event.get("event_source_url"),
             "source_domain": extract_domain_from_url(context.get("event_source_url") or event.get("event_source_url")),
+            "sended": sended,
             "send_failed": True,
             "details": f"meta_send_failed: {e}",
         })
@@ -654,6 +663,7 @@ async def send_to_meta(
         "fbc": context.get("fbc"),
         "event_source_url": context.get("event_source_url") or event.get("event_source_url"),
         "source_domain": extract_domain_from_url(context.get("event_source_url") or event.get("event_source_url")),
+        "sended": sended,
         "fbtrace_id": meta.get("fbtrace_id"),
         "events_received": meta.get("events_received"),
         "messages": meta.get("messages"),
