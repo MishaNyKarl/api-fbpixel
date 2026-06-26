@@ -70,7 +70,17 @@ def create_pixel():
             allowed_domains="example.com",
             is_active=True,
         )
+        other_pixel = main.Pixel(
+            public_id="px_other",
+            name="Other Buyer Pixel",
+            buyer_name="other-buyer",
+            meta_pixel_id="987654321",
+            meta_access_token="OTHER_TOKEN",
+            allowed_domains="other.example.com",
+            is_active=True,
+        )
         db.add(pixel)
+        db.add(other_pixel)
         db.commit()
     finally:
         db.close()
@@ -90,6 +100,7 @@ def main_test():
         admin = client.get("/admin/pixels", auth=("admin", "admin"))
         assert admin.status_code == 200, admin.text
         assert "px_test" in admin.text
+        assert "px_other" in admin.text
         assert "pixel-search-input" in admin.text
         assert "pixel-column-settings" in admin.text
         assert "theme-toggle" in admin.text
@@ -114,6 +125,16 @@ def main_test():
 
         buyer_logs = client.get("/admin/logs", auth=("buyer1", "buyer-pass"))
         assert buyer_logs.status_code == 200, buyer_logs.text
+
+        buyer_pixels = client.get("/admin/pixels", auth=("buyer1", "buyer-pass"))
+        assert buyer_pixels.status_code == 200, buyer_pixels.text
+        assert "px_test" in buyer_pixels.text
+        assert "px_other" not in buyer_pixels.text
+        assert "/admin/pixels/new" not in buyer_pixels.text
+        assert "/admin/pixels/px_test/edit" not in buyer_pixels.text
+
+        buyer_pixel_new = client.get("/admin/pixels/new", auth=("buyer1", "buyer-pass"))
+        assert buyer_pixel_new.status_code == 403, buyer_pixel_new.text
 
         quality = client.get("/admin/quality", auth=("admin", "admin"))
         assert quality.status_code == 200, quality.text

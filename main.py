@@ -19,7 +19,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
-from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, create_engine
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, create_engine, func
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
 
@@ -947,14 +947,22 @@ def normalize_role(role: Optional[str]) -> str:
     return "admin" if role == "admin" else "buyer"
 
 
+def pixel_query_for_user(db: Session, user: Dict[str, Any]):
+    query = db.query(Pixel)
+    if user.get("is_admin"):
+        return query
+    buyer_name = str(user.get("buyer_name") or "").lower()
+    return query.filter(func.lower(Pixel.buyer_name) == buyer_name)
+
+
 @app.get("/healthz")
 async def healthz():
     return {"ok": True}
 
 
 @app.get("/admin/pixels", response_class=HTMLResponse)
-async def admin_pixels(request: Request, db: Session = Depends(get_db), user: Dict[str, Any] = Depends(require_admin_user)):
-    pixels = db.query(Pixel).order_by(Pixel.created_at.desc()).all()
+async def admin_pixels(request: Request, db: Session = Depends(get_db), user: Dict[str, Any] = Depends(require_user)):
+    pixels = pixel_query_for_user(db, user).order_by(Pixel.created_at.desc()).all()
     return templates.TemplateResponse(
         name="pixels_list.html",
         request=request,

@@ -17,7 +17,9 @@
         <input id="pixel-search-input" class="pixels-search-input" type="search" placeholder="Search or Ask">
       </div>
       <div class="actions">
+        {% if current_user.is_admin %}
         <a class="btn" href="/admin/pixels/new">Добавить пиксель</a>
+        {% endif %}
         <a class="btn secondary" href="/admin/logs">Смотреть логи</a>
       </div>
     </div>
@@ -69,6 +71,7 @@
             </td>
             <td data-col="token" class="pixel-token">{{ mask_token(pixel.meta_access_token) }}</td>
             <td data-col="actions" class="pixel-actions">
+              {% if current_user.is_admin %}
               <div class="actions">
                 <a class="btn secondary" href="/admin/pixels/{{ pixel.public_id }}/edit">Редактировать</a>
                 {% if pixel.is_active %}
@@ -77,6 +80,7 @@
                 <form method="post" action="/admin/pixels/{{ pixel.public_id }}/enable"><button class="btn ok">Включить</button></form>
                 {% endif %}
               </div>
+              {% endif %}
             </td>
           </tr>
           {% endfor %}
