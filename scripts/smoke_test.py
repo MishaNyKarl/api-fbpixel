@@ -100,7 +100,7 @@ def create_pixel():
             buyer_name="admin",
             dataset_id="D75QFE3C77UDH74CJM70",
             access_token="TT_TOKEN",
-            event_name="CompletePayment",
+            event_name="Purchase",
             currency="USD",
             allowed_statuses="Approved,Paid",
             flow_ids="flow-main",
@@ -113,7 +113,7 @@ def create_pixel():
             buyer_name="other-buyer",
             dataset_id="OTHER_DATASET",
             access_token="OTHER_TT_TOKEN",
-            event_name="CompletePayment",
+            event_name="Purchase",
             currency="USD",
             allowed_statuses="Approved,Paid",
             is_active=True,
@@ -229,16 +229,29 @@ def main_test():
         assert whale.status_code == 200, whale.text
         assert whale.json()["ok"] is True
         assert whale.json()["dataset_id"] == "D75QFE3C77UDH74CJM70"
+        assert whale.json()["event_name"] == "Purchase"
         assert len(fake_send_to_tiktok.calls) == 1
         sent_payload = fake_send_to_tiktok.calls[-1][0]
         assert sent_payload["event_source_id"] == "D75QFE3C77UDH74CJM70"
-        assert sent_payload["data"][0]["event"] == "CompletePayment"
+        assert sent_payload["data"][0]["event"] == "Purchase"
         assert sent_payload["data"][0]["event_id"] == "conversion_1"
         assert sent_payload["data"][0]["user"]["ttclid"] == "ttclid_1"
         assert sent_payload["data"][0]["properties"]["value"] == 14.5
+        assert sent_payload["data"][0]["properties"]["content_id"] == "offer_1"
         assert isinstance(sent_payload["data"][0]["properties"]["query"], str)
         assert "campaign_1" in sent_payload["data"][0]["properties"]["query"]
         assert sent_payload["data"][0]["event_time"] == 1782813660
+
+        override_payload = dict(whale_payload)
+        override_payload["event_id"] = "conversion_submit_form"
+        override = client.post(
+            "/postbacks/whale/tiktok?secret=whale-secret&tiktok_event=SubmitForm",
+            json=override_payload,
+        )
+        assert override.status_code == 200, override.text
+        assert override.json()["event_name"] == "SubmitForm"
+        assert len(fake_send_to_tiktok.calls) == 2
+        assert fake_send_to_tiktok.calls[-1][0]["data"][0]["event"] == "SubmitForm"
 
         duplicate_whale = client.post(
             "/postbacks/whale/tiktok",
@@ -247,7 +260,7 @@ def main_test():
         )
         assert duplicate_whale.status_code == 200, duplicate_whale.text
         assert duplicate_whale.json()["duplicate"] is True
-        assert len(fake_send_to_tiktok.calls) == 1
+        assert len(fake_send_to_tiktok.calls) == 2
 
         pending_payload = dict(whale_payload)
         pending_payload["event_id"] = "conversion_pending"
@@ -256,7 +269,7 @@ def main_test():
         assert pending.status_code == 200, pending.text
         assert pending.json()["ignored"] is True
         assert pending.json()["reason"] == "status_not_allowed"
-        assert len(fake_send_to_tiktok.calls) == 1
+        assert len(fake_send_to_tiktok.calls) == 2
 
         unknown_payload = dict(whale_payload)
         unknown_payload["event_id"] = "conversion_unknown"
@@ -265,7 +278,7 @@ def main_test():
         unknown = client.post("/postbacks/whale/tiktok?secret=whale-secret", json=unknown_payload)
         assert unknown.status_code == 400, unknown.text
 
-        tiktok_logs = client.get("/admin/tiktok/logs?buyer=__all__&event=CompletePayment", auth=("admin", "admin"))
+        tiktok_logs = client.get("/admin/tiktok/logs?buyer=__all__&event=Purchase", auth=("admin", "admin"))
         assert tiktok_logs.status_code == 200, tiktok_logs.text
         assert "conversion_1" in tiktok_logs.text
         assert "TT_TOKEN" not in tiktok_logs.text

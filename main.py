@@ -65,6 +65,26 @@ TIKTOK_EVENT_LOG_MAX = int(os.getenv("TIKTOK_EVENT_LOG_MAX", str(META_EVENT_LOG_
 TIKTOK_CLICK_LOG_MAX = int(os.getenv("TIKTOK_CLICK_LOG_MAX", str(META_CLICK_LOG_MAX)))
 ADMIN_LOG_LIMIT_MAX = int(os.getenv("ADMIN_LOG_LIMIT_MAX", "1000"))
 CLICK_TTL = 60 * 60 * 24 * 11
+TIKTOK_STANDARD_EVENTS = [
+    "Purchase",
+    "SubmitForm",
+    "CompleteRegistration",
+    "Contact",
+    "InitiateCheckout",
+    "AddToCart",
+    "ViewContent",
+    "AddPaymentInfo",
+    "AddToWishlist",
+    "ApplicationApproval",
+    "CustomizeProduct",
+    "Download",
+    "FindLocation",
+    "Schedule",
+    "Search",
+    "StartTrial",
+    "SubmitApplication",
+    "Subscribe",
+]
 
 try:
     APP_TZ = ZoneInfo(APP_TIMEZONE)
@@ -142,7 +162,7 @@ class TikTokPixel(Base):
     buyer_name = Column(String(255), nullable=True)
     dataset_id = Column(String(255), nullable=False)
     access_token = Column(Text, nullable=False)
-    event_name = Column(String(128), nullable=False, default="CompletePayment")
+    event_name = Column(String(128), nullable=False, default="Purchase")
     currency = Column(String(16), nullable=False, default="USD")
     allowed_statuses = Column(Text, nullable=True)
     flow_ids = Column(Text, nullable=True)
@@ -791,6 +811,18 @@ def tiktok_payload_for_log(payload: Dict[str, Any]) -> str:
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
 
+def resolve_tiktok_event_name(
+    pixel: Optional[TikTokPixel] = None,
+    pb: Optional[WhaleTikTokPostback] = None,
+    override: Optional[str] = None,
+) -> str:
+    for value in (override, pixel.event_name if pixel else None, pb.event if pb else None, "Purchase"):
+        normalized = (value or "").strip()
+        if normalized:
+            return normalized
+    return "Purchase"
+
+
 def public_tiktok_result(status_code: Optional[int], parsed: Any, text: str) -> Dict[str, Any]:
     return {
         "status_code": status_code,
@@ -801,9 +833,15 @@ def public_tiktok_result(status_code: Optional[int], parsed: Any, text: str) -> 
     }
 
 
-def build_tiktok_payload(pb: WhaleTikTokPostback, pixel: TikTokPixel, request: Request) -> Dict[str, Any]:
-    event_name = pixel.event_name or pb.event or "CompletePayment"
+def build_tiktok_payload(
+    pb: WhaleTikTokPostback,
+    pixel: TikTokPixel,
+    request: Request,
+    event_name: Optional[str] = None,
+) -> Dict[str, Any]:
+    event_name = resolve_tiktok_event_name(pixel=pixel, pb=pb, override=event_name)
     value = parse_float(pb.payout)
+    content_id = next((str(item).strip() for item in (pb.offer_id, pb.flow_id, pb.pixel_id) if str(item or "").strip()), None)
     query = {
         "campaign_id": pb.campaign_id,
         "campaign_name": pb.campaign_name,
@@ -827,6 +865,7 @@ def build_tiktok_payload(pb: WhaleTikTokPostback, pixel: TikTokPixel, request: R
     properties = {
         "currency": pixel.currency or "USD",
         **({"value": value} if value is not None else {}),
+        **({"content_id": content_id} if content_id else {}),
         "content_type": "product",
         "description": "Whale conversion",
         "query": json.dumps(query_payload, ensure_ascii=False, separators=(",", ":")),
@@ -1508,7 +1547,13 @@ async def admin_tiktok_pixel_new(request: Request, user: Dict[str, Any] = Depend
     return templates.TemplateResponse(
         name="tiktok_pixel_form.html",
         request=request,
-        context={"pixel": None, "mode": "new", "masked_token": "", "current_user": user},
+        context={
+            "pixel": None,
+            "mode": "new",
+            "masked_token": "",
+            "current_user": user,
+            "tiktok_events": TIKTOK_STANDARD_EVENTS,
+        },
     )
 
 
@@ -1521,7 +1566,7 @@ async def admin_tiktok_pixel_create(request: Request, db: Session = Depends(get_
         buyer_name=form.get("buyer_name", "").strip() or None,
         dataset_id=form.get("dataset_id", "").strip(),
         access_token=form.get("access_token", "").strip(),
-        event_name=form.get("event_name", "").strip() or "CompletePayment",
+        event_name=form.get("event_name", "").strip() or "Purchase",
         currency=(form.get("currency", "").strip() or "USD").upper(),
         allowed_statuses=form.get("allowed_statuses", "").strip() or None,
         flow_ids=form.get("flow_ids", "").strip() or None,
@@ -1558,6 +1603,7 @@ async def admin_tiktok_pixel_edit(
             "created": bool(created),
             "masked_token": mask_token(pixel.access_token),
             "current_user": user,
+            "tiktok_events": TIKTOK_STANDARD_EVENTS,
         },
     )
 
@@ -1580,7 +1626,7 @@ async def admin_tiktok_pixel_update(
     new_token = form.get("access_token", "").strip()
     if new_token:
         pixel.access_token = new_token
-    pixel.event_name = form.get("event_name", "").strip() or "CompletePayment"
+    pixel.event_name = form.get("event_name", "").strip() or "Purchase"
     pixel.currency = (form.get("currency", "").strip() or "USD").upper()
     pixel.allowed_statuses = form.get("allowed_statuses", "").strip() or None
     pixel.flow_ids = form.get("flow_ids", "").strip() or None
@@ -1945,6 +1991,7 @@ async def whale_tiktok_postback(
     pb: WhaleTikTokPostback,
     request: Request,
     secret: Optional[str] = Query(default=None),
+    tiktok_event: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
 ):
     ensure_whale_tiktok_secret(request, secret)
@@ -1971,7 +2018,7 @@ async def whale_tiktok_postback(
             "tiktok_pixel_id": pb.pixel_id,
             "dataset_id": None,
             "status_code": exc.status_code,
-            "event_name": pb.event or "CompletePayment",
+            "event_name": resolve_tiktok_event_name(pb=pb, override=tiktok_event),
             "event_id": pb.event_id,
             "clickid": pb.click_uuid,
             "ttclid": pb.ttclid,
@@ -1982,7 +2029,7 @@ async def whale_tiktok_postback(
         })
         raise
 
-    event_name = pixel.event_name or pb.event or "CompletePayment"
+    event_name = resolve_tiktok_event_name(pixel=pixel, pb=pb, override=tiktok_event)
     allowed_statuses = tiktok_allowed_statuses(pixel)
     if (pb.status or "").strip().lower() not in allowed_statuses:
         log_tiktok_to_redis({
@@ -2064,13 +2111,14 @@ async def whale_tiktok_postback(
             "reason": "duplicate_event_id",
         }
 
-    payload = build_tiktok_payload(pb, pixel, request)
+    payload = build_tiktok_payload(pb, pixel, request, event_name=event_name)
     tiktok_result = await send_to_tiktok(payload, pixel, context)
     return {
         "ok": True,
         "accepted": True,
         "tiktok_pixel_id": pixel.public_id,
         "dataset_id": pixel.dataset_id,
+        "event_name": event_name,
         "event_id": pb.event_id,
         "tiktok": tiktok_result,
     }

@@ -45,7 +45,13 @@
   <div class="row">
     <div>
       <label>Event name</label>
-      <input name="event_name" value="{{ pixel.event_name if pixel else 'CompletePayment' }}">
+      <input name="event_name" list="tiktok-event-options" value="{{ pixel.event_name if pixel else 'Purchase' }}">
+      <datalist id="tiktok-event-options">
+        {% for event_name in tiktok_events %}
+        <option value="{{ event_name }}"></option>
+        {% endfor %}
+      </datalist>
+      <p class="muted">Whale can send CompletePayment, but this is the TikTok event name sent to Events API. For manual tests you can append <code>&tiktok_event=SubmitForm</code> to the postback URL.</p>
     </div>
     <div>
       <label>Currency</label>

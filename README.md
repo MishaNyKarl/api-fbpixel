@@ -129,7 +129,7 @@ TikTok pixel fields:
 - `buyer_name` - buyer name used in logs and filters
 - `dataset_id` - real TikTok Dataset/Pixel ID
 - `access_token` - real TikTok Events API token, server-only
-- `event_name` - default TikTok event, usually `CompletePayment`
+- `event_name` - TikTok event sent to Events API, usually `Purchase`; Whale may still send `CompletePayment` in its own payload
 - `currency` - default currency, usually `USD`
 - `allowed_statuses` - comma/newline list, default `Approved,Paid`
 - `flow_ids` - optional Whale flow aliases used as fallback mapping
@@ -244,6 +244,14 @@ Endpoint:
 POST /postbacks/whale/tiktok?secret=<WHALE_TIKTOK_SECRET>
 ```
 
+For manual diagnostics only, the TikTok event can be overridden in the URL:
+
+```text
+POST /postbacks/whale/tiktok?secret=<WHALE_TIKTOK_SECRET>&tiktok_event=SubmitForm
+```
+
+In production, keep the desired event in `/admin/tiktok/pixels`. Common values are `Purchase`, `SubmitForm`, `CompleteRegistration`, `Contact`, `InitiateCheckout`, `AddToCart`, and `ViewContent`.
+
 The secret can also be sent as:
 
 ```text
@@ -284,6 +292,8 @@ aff_pixel_id=D75QFE3C77UDH74CJM70
 ```
 
 then create a TikTok pixel with `public_id=D75QFE3C77UDH74CJM70` and set the real `dataset_id` and `access_token` on the server.
+
+TikTok accepts events without email or phone, but matching quality is weaker. The service sends the available `ttclid`, IP, user agent, value, currency, `content_id`, and campaign metadata. Email/phone can only be sent if the landing/order source provides them to the server.
 
 Ignored statuses return:
 
