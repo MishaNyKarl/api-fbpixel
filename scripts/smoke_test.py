@@ -236,6 +236,8 @@ def main_test():
         assert sent_payload["data"][0]["event_id"] == "conversion_1"
         assert sent_payload["data"][0]["user"]["ttclid"] == "ttclid_1"
         assert sent_payload["data"][0]["properties"]["value"] == 14.5
+        assert isinstance(sent_payload["data"][0]["properties"]["query"], str)
+        assert "campaign_1" in sent_payload["data"][0]["properties"]["query"]
         assert sent_payload["data"][0]["event_time"] == 1782813660
 
         duplicate_whale = client.post(

@@ -823,12 +823,13 @@ def build_tiktok_payload(pb: WhaleTikTokPostback, pixel: TikTokPixel, request: R
         **({"ip": pb.ip} if pb.ip else {}),
         **({"user_agent": pb.user_agent or request.headers.get("user-agent")} if (pb.user_agent or request.headers.get("user-agent")) else {}),
     }
+    query_payload = {key: val for key, val in query.items() if val not in {None, ""}}
     properties = {
         "currency": pixel.currency or "USD",
         **({"value": value} if value is not None else {}),
         "content_type": "product",
         "description": "Whale conversion",
-        "query": {key: val for key, val in query.items() if val not in {None, ""}},
+        "query": json.dumps(query_payload, ensure_ascii=False, separators=(",", ":")),
     }
     event = {
         "event": event_name,
