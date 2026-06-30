@@ -13,6 +13,7 @@ os.environ["ADMIN_PASSWORD"] = "admin"
 os.environ["API_PUBLIC_KEY"] = "test-api-key"
 os.environ["REDIS_URL"] = "redis://localhost:6379/15"
 os.environ["DEDUP_TTL_SECONDS"] = "600"
+os.environ["WHALE_TIKTOK_SECRET"] = "whale-secret"
 
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -58,6 +59,20 @@ async def fake_send_to_meta(event, meta_pixel_id, meta_access_token, pixel=None,
     }
 
 
+async def fake_send_to_tiktok(payload, pixel, context):
+    fake_send_to_tiktok.calls.append((payload, pixel, context))
+    return {
+        "status_code": 200,
+        "code": 0,
+        "message": "OK",
+        "request_id": "fake-tiktok-request",
+        "body": {"code": 0, "message": "OK", "request_id": "fake-tiktok-request"},
+    }
+
+
+fake_send_to_tiktok.calls = []
+
+
 def create_pixel():
     db = main.SessionLocal()
     try:
@@ -79,8 +94,34 @@ def create_pixel():
             allowed_domains="other.example.com",
             is_active=True,
         )
+        tiktok_pixel = main.TikTokPixel(
+            public_id="D75QFE3C77UDH74CJM70",
+            name="TikTok Whale Pixel",
+            buyer_name="admin",
+            dataset_id="D75QFE3C77UDH74CJM70",
+            access_token="TT_TOKEN",
+            event_name="CompletePayment",
+            currency="USD",
+            allowed_statuses="Approved,Paid",
+            flow_ids="flow-main",
+            send_without_ttclid=True,
+            is_active=True,
+        )
+        other_tiktok_pixel = main.TikTokPixel(
+            public_id="tt_other",
+            name="Other TikTok Pixel",
+            buyer_name="other-buyer",
+            dataset_id="OTHER_DATASET",
+            access_token="OTHER_TT_TOKEN",
+            event_name="CompletePayment",
+            currency="USD",
+            allowed_statuses="Approved,Paid",
+            is_active=True,
+        )
         db.add(pixel)
         db.add(other_pixel)
+        db.add(tiktok_pixel)
+        db.add(other_tiktok_pixel)
         db.commit()
     finally:
         db.close()
@@ -90,6 +131,7 @@ def main_test():
     try:
         main.rds = FakeRedis()
         main.send_to_meta = fake_send_to_meta
+        main.send_to_tiktok = fake_send_to_tiktok
         create_pixel()
 
         client = TestClient(main.app)
@@ -104,6 +146,12 @@ def main_test():
         assert "pixel-search-input" in admin.text
         assert "pixel-column-settings" in admin.text
         assert "theme-toggle" in admin.text
+
+        tiktok_admin = client.get("/admin/tiktok/pixels", auth=("admin", "admin"))
+        assert tiktok_admin.status_code == 200, tiktok_admin.text
+        assert "D75QFE3C77UDH74CJM70" in tiktok_admin.text
+        assert "OTHER_DATASET" in tiktok_admin.text
+        assert "TT_TOKEN" not in tiktok_admin.text
 
         users = client.get("/admin/users", auth=("admin", "admin"))
         assert users.status_code == 200, users.text
@@ -136,6 +184,11 @@ def main_test():
         buyer_pixel_new = client.get("/admin/pixels/new", auth=("buyer1", "buyer-pass"))
         assert buyer_pixel_new.status_code == 403, buyer_pixel_new.text
 
+        buyer_tiktok_pixels = client.get("/admin/tiktok/pixels", auth=("buyer1", "buyer-pass"))
+        assert buyer_tiktok_pixels.status_code == 200, buyer_tiktok_pixels.text
+        assert "D75QFE3C77UDH74CJM70" in buyer_tiktok_pixels.text
+        assert "OTHER_DATASET" not in buyer_tiktok_pixels.text
+
         quality = client.get("/admin/quality", auth=("admin", "admin"))
         assert quality.status_code == 200, quality.text
         assert "Tracking Quality" in quality.text
@@ -146,6 +199,74 @@ def main_test():
 
         buyer_users = client.get("/admin/users", auth=("buyer1", "buyer-pass"))
         assert buyer_users.status_code == 403, buyer_users.text
+
+        whale_payload = {
+            "source": "whale",
+            "event": "CompletePayment",
+            "event_id": "conversion_1",
+            "status": "Approved",
+            "payout": "14.50",
+            "offer_id": "offer_1",
+            "flow_id": "flow-main",
+            "source_id": "source_1",
+            "click_uuid": "click_uuid_1",
+            "ip": "127.0.0.1",
+            "ttclid": "ttclid_1",
+            "pixel_id": "D75QFE3C77UDH74CJM70",
+            "campaign_id": "campaign_1",
+            "campaign_name": "Campaign",
+            "adgroup_id": "adgroup_1",
+            "adgroup_name": "Adgroup",
+            "creative_id": "creative_1",
+            "creative_name": "Creative",
+            "created_at": "2026-06-30T10:00:00Z",
+            "updated_at": "2026-06-30T10:01:00Z",
+        }
+        whale = client.post(
+            "/postbacks/whale/tiktok?secret=whale-secret",
+            json=whale_payload,
+        )
+        assert whale.status_code == 200, whale.text
+        assert whale.json()["ok"] is True
+        assert whale.json()["dataset_id"] == "D75QFE3C77UDH74CJM70"
+        assert len(fake_send_to_tiktok.calls) == 1
+        sent_payload = fake_send_to_tiktok.calls[-1][0]
+        assert sent_payload["event_source_id"] == "D75QFE3C77UDH74CJM70"
+        assert sent_payload["data"][0]["event"] == "CompletePayment"
+        assert sent_payload["data"][0]["event_id"] == "conversion_1"
+        assert sent_payload["data"][0]["user"]["ttclid"] == "ttclid_1"
+        assert sent_payload["data"][0]["properties"]["value"] == 14.5
+        assert sent_payload["data"][0]["event_time"] == 1782813660
+
+        duplicate_whale = client.post(
+            "/postbacks/whale/tiktok",
+            json=whale_payload,
+            headers={"Authorization": "Bearer whale-secret"},
+        )
+        assert duplicate_whale.status_code == 200, duplicate_whale.text
+        assert duplicate_whale.json()["duplicate"] is True
+        assert len(fake_send_to_tiktok.calls) == 1
+
+        pending_payload = dict(whale_payload)
+        pending_payload["event_id"] = "conversion_pending"
+        pending_payload["status"] = "Pending"
+        pending = client.post("/postbacks/whale/tiktok?secret=whale-secret", json=pending_payload)
+        assert pending.status_code == 200, pending.text
+        assert pending.json()["ignored"] is True
+        assert pending.json()["reason"] == "status_not_allowed"
+        assert len(fake_send_to_tiktok.calls) == 1
+
+        unknown_payload = dict(whale_payload)
+        unknown_payload["event_id"] = "conversion_unknown"
+        unknown_payload["pixel_id"] = "unknown_tt_pixel"
+        unknown_payload["flow_id"] = "unknown_flow"
+        unknown = client.post("/postbacks/whale/tiktok?secret=whale-secret", json=unknown_payload)
+        assert unknown.status_code == 400, unknown.text
+
+        tiktok_logs = client.get("/admin/tiktok/logs?buyer=__all__&event=CompletePayment", auth=("admin", "admin"))
+        assert tiktok_logs.status_code == 200, tiktok_logs.text
+        assert "conversion_1" in tiktok_logs.text
+        assert "TT_TOKEN" not in tiktok_logs.text
 
         payload = {
             "tracker_pixel_id": "px_test",

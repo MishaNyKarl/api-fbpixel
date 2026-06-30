@@ -74,13 +74,24 @@ Lemonad:
 3. Resolves pixel from query `tracker_pixel_id` or Redis fingerprint.
 4. Sends `Purchase` to the same pixel.
 
+Whale -> TikTok:
+
+1. Calls `POST /postbacks/whale/tiktok?secret=...` with JSON.
+2. Server resolves TikTok config by Whale `pixel_id` alias first, then by `flow_id`.
+3. Only allowed statuses are sent, default: `Approved,Paid`.
+4. Server builds TikTok Events API payload and adds the server-side Events API token.
+5. Duplicate `dataset_id + event + event_id` events are skipped in Redis.
+6. TikTok responses are stored in separate Redis logs and visible in `/admin/tiktok/logs`.
+
 ## Admin UI
 
 Admin pages are protected by HTTP Basic Auth:
 
-- pixels: `/admin/pixels`
+- FB pixels: `/admin/pixels`
+- TikTok pixels: `/admin/tiktok/pixels`
 - new pixel: `/admin/pixels/new`
 - logs: `/admin/logs`
+- TikTok logs: `/admin/tiktok/logs`
 - users: `/admin/users`
 
 There are two user roles:
@@ -110,6 +121,23 @@ Pixel fields:
 - `is_active` - disabled pixels reject events
 
 If `allowed_domains` is empty, any domain is allowed. If it is set and `STRICT_DOMAIN_CHECK=true`, non-matching domains return `403 domain_not_allowed`. With `STRICT_DOMAIN_CHECK=false`, the service logs a warning but still sends the event.
+
+TikTok pixel fields:
+
+- `public_id` - Whale `pixel_id` alias, for example `D75QFE3C77UDH74CJM70` or internal `tt_xxxxx`
+- `name` - pixel/campaign label
+- `buyer_name` - buyer name used in logs and filters
+- `dataset_id` - real TikTok Dataset/Pixel ID
+- `access_token` - real TikTok Events API token, server-only
+- `event_name` - default TikTok event, usually `CompletePayment`
+- `currency` - default currency, usually `USD`
+- `allowed_statuses` - comma/newline list, default `Approved,Paid`
+- `flow_ids` - optional Whale flow aliases used as fallback mapping
+- `test_event_code` - optional TikTok Test Events code
+- `send_without_ttclid` - if disabled, Whale conversions without valid `ttclid` are ignored
+- `is_active` - disabled TikTok pixels reject postbacks
+
+TikTok tokens are never returned to Whale and should not be copied into flow URLs.
 
 ## Browser Tracker
 
@@ -200,6 +228,71 @@ If the same event repeats during this window, the service returns:
 
 The duplicate is logged in `/admin/logs`, but it is not sent to Meta.
 
+TikTok deduplication uses:
+
+```text
+dedup:tiktok:<sha256(dataset_id|event_name|event_id)>
+```
+
+Whale duplicate postbacks return `200 OK` with `duplicate: true` and are not sent to TikTok again.
+
+## Whale TikTok Postback
+
+Endpoint:
+
+```text
+POST /postbacks/whale/tiktok?secret=<WHALE_TIKTOK_SECRET>
+```
+
+The secret can also be sent as:
+
+```text
+Authorization: Bearer <WHALE_TIKTOK_SECRET>
+```
+
+Expected JSON shape:
+
+```json
+{
+  "source": "whale",
+  "event": "CompletePayment",
+  "event_id": "conversion_id",
+  "status": "Approved",
+  "payout": "14.50",
+  "offer_id": "offer_id",
+  "flow_id": "flow_id",
+  "source_id": "source_id",
+  "click_uuid": "uuid",
+  "ip": "127.0.0.1",
+  "ttclid": "ttclid_value",
+  "pixel_id": "D75QFE3C77UDH74CJM70",
+  "campaign_id": "campaign_id",
+  "campaign_name": "campaign_name",
+  "adgroup_id": "adgroup_id",
+  "adgroup_name": "adgroup_name",
+  "creative_id": "creative_id",
+  "creative_name": "creative_name",
+  "created_at": "2026-06-30T10:00:00Z",
+  "updated_at": "2026-06-30T10:01:00Z"
+}
+```
+
+`pixel_id` is the alias configured in `/admin/tiktok/pixels`. For the first Whale flow, if the URL contains:
+
+```text
+aff_pixel_id=D75QFE3C77UDH74CJM70
+```
+
+then create a TikTok pixel with `public_id=D75QFE3C77UDH74CJM70` and set the real `dataset_id` and `access_token` on the server.
+
+Ignored statuses return:
+
+```json
+{"ok": true, "ignored": true, "reason": "status_not_allowed"}
+```
+
+Unknown TikTok pixel aliases return `400 unknown_tiktok_pixel_id` and are logged in `/admin/tiktok/logs`.
+
 ## Environment
 
 Use `.env.example` as a template.
@@ -215,6 +308,14 @@ ADMIN_PASSWORD=...
 STRICT_DOMAIN_CHECK=false
 CORS_ALLOW_ORIGINS=*
 DEDUP_TTL_SECONDS=600
+WHALE_TIKTOK_SECRET=...
+TIKTOK_ALLOWED_STATUSES=Approved,Paid
+TIKTOK_SEND_WITHOUT_TTCLID=true
+TIKTOK_EVENTS_API_URL=https://business-api.tiktok.com/open_api/v1.3/event/track/
+TIKTOK_TIMEOUT_SECONDS=10
+TIKTOK_LOG_MAX=10000
+TIKTOK_EVENT_LOG_MAX=5000
+TIKTOK_CLICK_LOG_MAX=200
 ```
 
 `ADMIN_USERNAME` and `ADMIN_PASSWORD` are used for bootstrap only when the DB has no users yet. Keep them valid as an emergency fallback, but manage normal access through `/admin/users`.

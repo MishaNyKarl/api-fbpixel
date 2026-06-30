@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{% if mode == "new" %}Добавить TikTok Pixel{% else %}Редактировать TikTok Pixel{% endif %}</h1>
+
+{% if created %}
+<div class="notice">
+  TikTok pixel создан. Alias для Whale:
+  <pre>aff_pixel_id={{ pixel.public_id }}</pre>
+</div>
+{% endif %}
+
+{% if pixel %}
+<p>Alias: <code>{{ pixel.public_id }}</code></p>
+{% endif %}
+
+<form method="post" action="{% if mode == 'new' %}/admin/tiktok/pixels/new{% else %}/admin/tiktok/pixels/{{ pixel.public_id }}/edit{% endif %}">
+  <div class="row">
+    <div>
+      <label>Название</label>
+      <input name="name" required value="{{ pixel.name if pixel else '' }}">
+    </div>
+    <div>
+      <label>Баер</label>
+      <input name="buyer_name" value="{{ pixel.buyer_name if pixel and pixel.buyer_name else '' }}">
+    </div>
+  </div>
+
+  {% if mode == "new" %}
+  <label>Whale pixel_id alias</label>
+  <input name="public_id" placeholder="D75QFE3C77UDH74CJM70 или tt_alias" value="">
+  <p class="muted">Если оставить пустым, сервер сгенерирует непредсказуемый alias. Для текущего Whale flow сюда можно вписать значение aff_pixel_id.</p>
+  {% endif %}
+
+  <label>TikTok Dataset / Pixel ID</label>
+  <input name="dataset_id" required value="{{ pixel.dataset_id if pixel else '' }}">
+
+  <label>TikTok Events API Access Token</label>
+  {% if mode == "edit" %}
+  <p class="muted">Текущий токен: {{ masked_token }}. Оставьте поле пустым, чтобы не менять токен.</p>
+  <input name="access_token" value="" placeholder="Новый токен">
+  {% else %}
+  <input name="access_token" required value="">
+  {% endif %}
+
+  <div class="row">
+    <div>
+      <label>Event name</label>
+      <input name="event_name" value="{{ pixel.event_name if pixel else 'CompletePayment' }}">
+    </div>
+    <div>
+      <label>Currency</label>
+      <input name="currency" value="{{ pixel.currency if pixel else 'USD' }}">
+    </div>
+  </div>
+
+  <label>Allowed Whale statuses</label>
+  <input name="allowed_statuses" placeholder="Approved,Paid" value="{{ pixel.allowed_statuses if pixel and pixel.allowed_statuses else 'Approved,Paid' }}">
+
+  <label>Flow IDs aliases</label>
+  <textarea name="flow_ids" placeholder="flow_id_1&#10;flow_id_2">{{ pixel.flow_ids if pixel and pixel.flow_ids else '' }}</textarea>
+
+  <label>Test Event Code</label>
+  <input name="test_event_code" value="{{ pixel.test_event_code if pixel and pixel.test_event_code else '' }}">
+
+  <label><input style="width:auto" type="checkbox" name="send_without_ttclid" {% if not pixel or pixel.send_without_ttclid %}checked{% endif %}> Отправлять даже без ttclid</label>
+  <label><input style="width:auto" type="checkbox" name="is_active" {% if not pixel or pixel.is_active %}checked{% endif %}> Активен</label>
+
+  <div class="actions">
+    <button class="btn" type="submit">Сохранить</button>
+    <a class="btn secondary" href="/admin/tiktok/pixels">Назад</a>
+  </div>
+</form>
+{% endblock %}

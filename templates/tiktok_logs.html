@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Логи TikTok Events API</h1>
+<p class="muted">
+  Показано {{ logs|length }} из {{ total_filtered }} после фильтрации. Время показано в зоне {{ app_timezone }}.
+  Пользователь: {{ current_user.username }}; роль: {{ current_user.role }}; buyer: {{ resolved_buyer }}.
+</p>
+
+<form class="filters" method="get" action="/admin/tiktok/logs">
+  <input name="limit" type="number" min="1" max="1000" value="{{ limit }}">
+  <input name="date_from" type="date" value="{{ date_from }}">
+  <input name="date_to" type="date" value="{{ date_to }}">
+  <input name="status" placeholder="status code" value="{{ status_filter }}">
+  <input name="event" placeholder="event" value="{{ event }}">
+  <input name="tiktok_pixel_id" placeholder="tiktok_pixel_id" value="{{ tiktok_pixel_id }}">
+  <input name="clickid" placeholder="clickid" value="{{ clickid }}">
+  <input name="ttclid" placeholder="ttclid" value="{{ ttclid }}">
+  <input name="flow_id" placeholder="flow_id" value="{{ flow_id }}">
+  <select name="buyer">
+    <option value="mine" {% if buyer == 'mine' %}selected{% endif %}>Моя стата</option>
+    {% if current_user.is_admin %}
+    <option value="__all__" {% if buyer == '__all__' %}selected{% endif %}>Все баеры</option>
+    {% for item in buyers %}
+    <option value="{{ item }}" {% if buyer == item %}selected{% endif %}>{{ item }}</option>
+    {% endfor %}
+    {% endif %}
+  </select>
+  <button class="btn" type="submit">Фильтр</button>
+  <a class="btn secondary" href="/admin/tiktok/logs">Сбросить</a>
+</form>
+
+<div class="quick-filters">
+  <a class="btn secondary" href="/admin/tiktok/logs?date_from={{ today_date }}&date_to={{ today_date }}&buyer={{ buyer }}">Сегодня</a>
+  <a class="btn secondary" href="/admin/tiktok/logs?date_from={{ yesterday_date }}&date_to={{ yesterday_date }}&buyer={{ buyer }}">Вчера</a>
+  <a class="btn secondary" href="/admin/tiktok/logs?date_from={{ week_date }}&date_to={{ today_date }}&buyer={{ buyer }}">7 дней</a>
+  <a class="btn secondary" href="/admin/tiktok/pixels">TT Pixels</a>
+</div>
+
+<div class="table-wrap">
+  <table class="logs-table">
+    <thead>
+      <tr>
+        <th>time</th>
+        <th>status</th>
+        <th>event</th>
+        <th>tiktok_pixel_id</th>
+        <th>buyer</th>
+        <th>dataset_id</th>
+        <th>event_id</th>
+        <th>clickid</th>
+        <th>ttclid</th>
+        <th>flow_id</th>
+        <th>request_id</th>
+        <th>details</th>
+        <th>sended</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in logs %}
+      <tr class="{% if row.skipped_duplicate %}duplicate-row{% endif %}">
+        <td>{{ row.when or row._ts }}</td>
+        <td class="{% if row.status_code and row.status_code|int >= 400 %}status-bad{% elif row.status_code == 208 %}status-warn{% else %}status-ok{% endif %}">{{ row.status_code }}</td>
+        <td>{{ row.event_name }}</td>
+        <td><code>{{ row.tiktok_pixel_id }}</code></td>
+        <td>{{ row.buyer_name }}</td>
+        <td><code>{{ row.dataset_id }}</code></td>
+        <td class="mono long">{{ row.event_id }}</td>
+        <td class="mono long">{{ row.clickid }}</td>
+        <td class="mono long">{{ row.ttclid }}</td>
+        <td class="mono long">{{ row.flow_id }}</td>
+        <td class="mono long">{{ row.request_id }}</td>
+        <td>
+          {% if row.ignored %}<span class="pill">ignored</span>{% endif %}
+          {% if row.rejected %}<span class="pill">rejected</span>{% endif %}
+          {% if row.skipped_duplicate %}<span class="pill">duplicate skipped</span>{% endif %}
+          {% if row.details %}<div class="mono">{{ row.details }}</div>{% endif %}
+          {% if row.message %}<div>{{ row.message }}</div>{% endif %}
+        </td>
+        <td class="payload-cell">
+          {% if row.sended %}
+          <details>
+            <summary>payload</summary>
+            <pre class="payload-view">{{ row.sended }}</pre>
+          </details>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

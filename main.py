@@ -1,4 +1,5 @@
 import hashlib
+import asyncio
 import json
 import logging
 import os
@@ -40,13 +41,28 @@ STRICT_DOMAIN_CHECK = os.getenv("STRICT_DOMAIN_CHECK", "false").lower() in {"1",
 CORS_ALLOW_ORIGINS = os.getenv("CORS_ALLOW_ORIGINS", "*")
 DEDUP_TTL_SECONDS = int(os.getenv("DEDUP_TTL_SECONDS", "600"))
 APP_TIMEZONE = os.getenv("APP_TIMEZONE", "Europe/Moscow")
+WHALE_TIKTOK_SECRET = os.getenv("WHALE_TIKTOK_SECRET", "")
+TIKTOK_ALLOWED_STATUSES = {
+    item.strip().lower()
+    for item in os.getenv("TIKTOK_ALLOWED_STATUSES", "Approved,Paid").split(",")
+    if item.strip()
+}
+TIKTOK_SEND_WITHOUT_TTCLID = os.getenv("TIKTOK_SEND_WITHOUT_TTCLID", "true").lower() in {"1", "true", "yes", "on"}
+TIKTOK_EVENTS_API_URL = os.getenv("TIKTOK_EVENTS_API_URL", "https://business-api.tiktok.com/open_api/v1.3/event/track/")
+TIKTOK_TIMEOUT_SECONDS = float(os.getenv("TIKTOK_TIMEOUT_SECONDS", "10"))
 
 META_LOG_KEY = "log:meta"
 META_EVENT_LOG_KEY_PREFIX = "log:meta:event:"
 META_CLICK_LOG_KEY_PREFIX = "log:meta:clickid:"
+TIKTOK_LOG_KEY = "log:tiktok"
+TIKTOK_EVENT_LOG_KEY_PREFIX = "log:tiktok:event:"
+TIKTOK_CLICK_LOG_KEY_PREFIX = "log:tiktok:clickid:"
 META_LOG_MAX = int(os.getenv("META_LOG_MAX", "10000"))
 META_EVENT_LOG_MAX = int(os.getenv("META_EVENT_LOG_MAX", "5000"))
 META_CLICK_LOG_MAX = int(os.getenv("META_CLICK_LOG_MAX", "200"))
+TIKTOK_LOG_MAX = int(os.getenv("TIKTOK_LOG_MAX", str(META_LOG_MAX)))
+TIKTOK_EVENT_LOG_MAX = int(os.getenv("TIKTOK_EVENT_LOG_MAX", str(META_EVENT_LOG_MAX)))
+TIKTOK_CLICK_LOG_MAX = int(os.getenv("TIKTOK_CLICK_LOG_MAX", str(META_CLICK_LOG_MAX)))
 ADMIN_LOG_LIMIT_MAX = int(os.getenv("ADMIN_LOG_LIMIT_MAX", "1000"))
 CLICK_TTL = 60 * 60 * 24 * 11
 
@@ -112,6 +128,26 @@ class Pixel(Base):
     meta_pixel_id = Column(String(255), nullable=False)
     meta_access_token = Column(Text, nullable=False)
     allowed_domains = Column(Text, nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=naive_app_now)
+    updated_at = Column(DateTime, nullable=False, default=naive_app_now, onupdate=naive_app_now)
+
+
+class TikTokPixel(Base):
+    __tablename__ = "tiktok_pixels"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    public_id = Column(String(64), unique=True, nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    buyer_name = Column(String(255), nullable=True)
+    dataset_id = Column(String(255), nullable=False)
+    access_token = Column(Text, nullable=False)
+    event_name = Column(String(128), nullable=False, default="CompletePayment")
+    currency = Column(String(16), nullable=False, default="USD")
+    allowed_statuses = Column(Text, nullable=True)
+    flow_ids = Column(Text, nullable=True)
+    test_event_code = Column(String(255), nullable=True)
+    send_without_ttclid = Column(Boolean, nullable=False, default=True)
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime, nullable=False, default=naive_app_now)
     updated_at = Column(DateTime, nullable=False, default=naive_app_now, onupdate=naive_app_now)
@@ -227,12 +263,24 @@ def generate_public_id() -> str:
     return "px_" + secrets.token_urlsafe(8)
 
 
+def generate_tiktok_public_id() -> str:
+    return "tt_" + secrets.token_urlsafe(8)
+
+
 def generate_unique_public_id(db: Session) -> str:
     for _ in range(10):
         public_id = generate_public_id()
         if not db.query(Pixel).filter(Pixel.public_id == public_id).first():
             return public_id
     raise RuntimeError("failed_to_generate_public_id")
+
+
+def generate_unique_tiktok_public_id(db: Session) -> str:
+    for _ in range(10):
+        public_id = generate_tiktok_public_id()
+        if not db.query(TikTokPixel).filter(TikTokPixel.public_id == public_id).first():
+            return public_id
+    raise RuntimeError("failed_to_generate_tiktok_public_id")
 
 
 def get_pixel_by_public_id(public_id: Optional[str], db: Session) -> Pixel:
@@ -246,6 +294,38 @@ def get_pixel_by_public_id(public_id: Optional[str], db: Session) -> Pixel:
         raise HTTPException(status_code=403, detail="pixel_disabled")
     if not pixel.meta_pixel_id or not pixel.meta_access_token:
         raise HTTPException(status_code=500, detail="pixel_not_configured")
+    return pixel
+
+
+def split_config_values(value: Optional[str]) -> Set[str]:
+    if not value:
+        return set()
+    return {item.strip().lower() for item in value.replace("\n", ",").split(",") if item.strip()}
+
+
+def get_tiktok_pixel_by_alias(alias: Optional[str], db: Session, flow_id: Optional[str] = None) -> TikTokPixel:
+    normalized_alias = (alias or "").strip()
+    normalized_flow = (flow_id or "").strip().lower()
+    if not normalized_alias and not normalized_flow:
+        raise HTTPException(status_code=400, detail="tiktok_pixel_id_required")
+
+    pixel = None
+    if normalized_alias:
+        pixel = db.query(TikTokPixel).filter(TikTokPixel.public_id == normalized_alias).first()
+        if not pixel:
+            pixel = db.query(TikTokPixel).filter(TikTokPixel.dataset_id == normalized_alias).first()
+    if not pixel and normalized_flow:
+        candidates = db.query(TikTokPixel).all()
+        for candidate in candidates:
+            if normalized_flow in split_config_values(candidate.flow_ids):
+                pixel = candidate
+                break
+    if not pixel:
+        raise HTTPException(status_code=400, detail="unknown_tiktok_pixel_id")
+    if not pixel.is_active:
+        raise HTTPException(status_code=403, detail="tiktok_pixel_disabled")
+    if not pixel.dataset_id or not pixel.access_token:
+        raise HTTPException(status_code=500, detail="tiktok_pixel_not_configured")
     return pixel
 
 
@@ -317,6 +397,24 @@ def log_meta_to_redis(entry: Dict[str, Any]):
         log.warning("Failed to write meta log to Redis: %s", e)
 
 
+def log_tiktok_to_redis(entry: Dict[str, Any]):
+    try:
+        entry.setdefault("_ts", int(time.time()))
+        entry.setdefault("when", format_app_timestamp(entry.get("_ts")))
+        payload = json.dumps(entry, ensure_ascii=False)
+        push_log_entry(TIKTOK_LOG_KEY, payload, TIKTOK_LOG_MAX)
+
+        event_index = log_index_value(entry.get("event_name"))
+        if event_index:
+            push_log_entry(f"{TIKTOK_EVENT_LOG_KEY_PREFIX}{event_index}", payload, TIKTOK_EVENT_LOG_MAX)
+
+        clickid_index = log_index_value(entry.get("clickid"))
+        if clickid_index:
+            push_log_entry(f"{TIKTOK_CLICK_LOG_KEY_PREFIX}{clickid_index}", payload, TIKTOK_CLICK_LOG_MAX)
+    except Exception as e:
+        log.warning("Failed to write TikTok log to Redis: %s", e)
+
+
 def parse_log_rows(rows: List[str]) -> List[Dict[str, Any]]:
     result = []
     for row in rows:
@@ -357,6 +455,29 @@ def load_clickid_meta_logs(clickid: str):
     return load_meta_logs_from_key(f"{META_CLICK_LOG_KEY_PREFIX}{clickid_index}", META_CLICK_LOG_MAX)
 
 
+def load_tiktok_logs_from_key(key: str, limit: int) -> List[Dict[str, Any]]:
+    rows = rds.lrange(key, 0, max(0, limit - 1))
+    return parse_log_rows(rows)
+
+
+def load_all_tiktok_logs():
+    return load_tiktok_logs_from_key(TIKTOK_LOG_KEY, TIKTOK_LOG_MAX)
+
+
+def load_event_tiktok_logs(event_name: str):
+    event_index = log_index_value(event_name)
+    if not event_index:
+        return []
+    return load_tiktok_logs_from_key(f"{TIKTOK_EVENT_LOG_KEY_PREFIX}{event_index}", TIKTOK_EVENT_LOG_MAX)
+
+
+def load_clickid_tiktok_logs(clickid: str):
+    clickid_index = log_index_value(clickid)
+    if not clickid_index:
+        return []
+    return load_tiktok_logs_from_key(f"{TIKTOK_CLICK_LOG_KEY_PREFIX}{clickid_index}", TIKTOK_CLICK_LOG_MAX)
+
+
 def make_fbc_from_fbclid(fbclid: Optional[str]) -> Optional[str]:
     if not fbclid:
         return None
@@ -373,6 +494,18 @@ def mark_event_for_send(tracker_pixel_id: str, event_name: str, event_id: str) -
     if DEDUP_TTL_SECONDS <= 0:
         return True
     return bool(rds.set(dedup_key(tracker_pixel_id, event_name, event_id), "1", nx=True, ex=DEDUP_TTL_SECONDS))
+
+
+def tiktok_dedup_key(dataset_id: str, event_name: str, event_id: str) -> str:
+    raw = f"{dataset_id}|{event_name}|{event_id}"
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    return f"dedup:tiktok:{digest}"
+
+
+def mark_tiktok_event_for_send(dataset_id: str, event_name: str, event_id: str) -> bool:
+    if DEDUP_TTL_SECONDS <= 0:
+        return True
+    return bool(rds.set(tiktok_dedup_key(dataset_id, event_name, event_id), "1", nx=True, ex=DEDUP_TTL_SECONDS))
 
 
 def log_duplicate_event(pixel: Pixel, event_name: str, event_id: str, context: Dict[str, Any]):
@@ -461,6 +594,30 @@ class TrackEvent(BaseModel):
     extra: Optional[Dict[str, Any]] = None
 
 
+class WhaleTikTokPostback(BaseModel):
+    source: Optional[str] = None
+    event: Optional[str] = None
+    event_id: str
+    status: str
+    payout: Optional[Any] = None
+    offer_id: Optional[str] = None
+    flow_id: Optional[str] = None
+    source_id: Optional[str] = None
+    click_uuid: Optional[str] = None
+    ip: Optional[str] = None
+    ttclid: Optional[str] = None
+    pixel_id: Optional[str] = None
+    campaign_id: Optional[str] = None
+    campaign_name: Optional[str] = None
+    adgroup_id: Optional[str] = None
+    adgroup_name: Optional[str] = None
+    creative_id: Optional[str] = None
+    creative_name: Optional[str] = None
+    created_at: Optional[Any] = None
+    updated_at: Optional[Any] = None
+    user_agent: Optional[str] = None
+
+
 def sha256_norm_email(email: str) -> str:
     return hashlib.sha256(email.strip().lower().encode("utf-8")).hexdigest()
 
@@ -528,6 +685,19 @@ def ensure_domain_allowed(pixel: Pixel, event_source_url: Optional[str]):
         raise HTTPException(status_code=403, detail="domain_not_allowed")
 
 
+def ensure_whale_tiktok_secret(request: Request, query_secret: Optional[str]):
+    if not WHALE_TIKTOK_SECRET:
+        return
+    bearer = request.headers.get("authorization", "")
+    header_secret = request.headers.get("x-postback-secret", "")
+    candidates = [query_secret or "", header_secret]
+    if bearer.lower().startswith("bearer "):
+        candidates.append(bearer.split(" ", 1)[1].strip())
+    if any(secrets.compare_digest(candidate, WHALE_TIKTOK_SECRET) for candidate in candidates if candidate):
+        return
+    raise HTTPException(status_code=401, detail="unauthorized")
+
+
 def mask_token(token: Optional[str]) -> str:
     if not token:
         return ""
@@ -568,6 +738,209 @@ def public_meta_result(status_code: Optional[int], parsed: Any, text: str) -> Di
         "error_user_msg": error_user_msg,
         "body": parsed if parsed is not None else text,
     }
+
+
+def parse_float(value: Optional[Any]) -> Optional[float]:
+    if value is None or value == "":
+        return None
+    try:
+        return float(str(value).replace(",", "."))
+    except Exception:
+        return None
+
+
+def parse_event_timestamp(*values: Optional[Any]) -> int:
+    for value in values:
+        if value is None or value == "":
+            continue
+        if isinstance(value, (int, float)):
+            raw = int(value)
+            return raw // 1000 if raw > 10_000_000_000 else raw
+        text = str(value).strip()
+        if not text:
+            continue
+        try:
+            if text.isdigit():
+                raw = int(text)
+                return raw // 1000 if raw > 10_000_000_000 else raw
+            normalized = text.replace("Z", "+00:00")
+            parsed = datetime.fromisoformat(normalized)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=APP_TZ)
+            return int(parsed.astimezone(timezone.utc).timestamp())
+        except Exception:
+            continue
+    return int(time.time())
+
+
+def is_macro_or_empty(value: Optional[str]) -> bool:
+    if not value:
+        return True
+    text = value.strip()
+    if not text:
+        return True
+    return text.startswith("__") and text.endswith("__")
+
+
+def tiktok_allowed_statuses(pixel: TikTokPixel) -> Set[str]:
+    configured = split_config_values(pixel.allowed_statuses)
+    return configured or TIKTOK_ALLOWED_STATUSES
+
+
+def tiktok_payload_for_log(payload: Dict[str, Any]) -> str:
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
+def public_tiktok_result(status_code: Optional[int], parsed: Any, text: str) -> Dict[str, Any]:
+    return {
+        "status_code": status_code,
+        "code": parsed.get("code") if isinstance(parsed, dict) else None,
+        "message": parsed.get("message") if isinstance(parsed, dict) else None,
+        "request_id": parsed.get("request_id") if isinstance(parsed, dict) else None,
+        "body": parsed if parsed is not None else text,
+    }
+
+
+def build_tiktok_payload(pb: WhaleTikTokPostback, pixel: TikTokPixel, request: Request) -> Dict[str, Any]:
+    event_name = pixel.event_name or pb.event or "CompletePayment"
+    value = parse_float(pb.payout)
+    query = {
+        "campaign_id": pb.campaign_id,
+        "campaign_name": pb.campaign_name,
+        "adgroup_id": pb.adgroup_id,
+        "adgroup_name": pb.adgroup_name,
+        "creative_id": pb.creative_id,
+        "creative_name": pb.creative_name,
+        "offer_id": pb.offer_id,
+        "flow_id": pb.flow_id,
+        "source_id": pb.source_id,
+        "click_uuid": pb.click_uuid,
+        "status": pb.status,
+        "source": pb.source,
+    }
+    user = {
+        **({"ttclid": pb.ttclid.strip()} if pb.ttclid and not is_macro_or_empty(pb.ttclid) else {}),
+        **({"ip": pb.ip} if pb.ip else {}),
+        **({"user_agent": pb.user_agent or request.headers.get("user-agent")} if (pb.user_agent or request.headers.get("user-agent")) else {}),
+    }
+    properties = {
+        "currency": pixel.currency or "USD",
+        **({"value": value} if value is not None else {}),
+        "content_type": "product",
+        "description": "Whale conversion",
+        "query": {key: val for key, val in query.items() if val not in {None, ""}},
+    }
+    event = {
+        "event": event_name,
+        "event_time": parse_event_timestamp(pb.updated_at, pb.created_at),
+        "event_id": pb.event_id,
+        "user": user,
+        "properties": properties,
+    }
+    payload = {
+        "event_source": "web",
+        "event_source_id": pixel.dataset_id,
+        "data": [event],
+    }
+    if pixel.test_event_code:
+        payload["test_event_code"] = pixel.test_event_code
+    return payload
+
+
+async def send_to_tiktok(
+    payload: Dict[str, Any],
+    pixel: TikTokPixel,
+    context: Dict[str, Any],
+) -> Dict[str, Any]:
+    headers = {
+        "Access-Token": pixel.access_token,
+        "Content-Type": "application/json",
+    }
+    event = (payload.get("data") or [{}])[0]
+    event_name = event.get("event")
+    event_id = event.get("event_id")
+    logged_payload = tiktok_payload_for_log(payload)
+    last_status = None
+    parsed = None
+    text = ""
+
+    for attempt in range(2):
+        try:
+            async with httpx.AsyncClient(timeout=TIKTOK_TIMEOUT_SECONDS) as client:
+                resp = await client.post(TIKTOK_EVENTS_API_URL, headers=headers, json=payload)
+            last_status = resp.status_code
+            text = resp.text
+            try:
+                parsed = resp.json()
+            except Exception:
+                parsed = None
+            if resp.status_code not in {429} and resp.status_code < 500:
+                break
+        except Exception as e:
+            if attempt >= 1:
+                log.exception(
+                    "TikTok Events API send failed: tiktok_pixel_id=%s buyer=%s dataset_id=%s event=%s id=%s clickid=%s",
+                    pixel.public_id,
+                    pixel.buyer_name,
+                    pixel.dataset_id,
+                    event_name,
+                    event_id,
+                    context.get("clickid"),
+                )
+                log_tiktok_to_redis({
+                    "tiktok_pixel_id": pixel.public_id,
+                    "buyer_name": pixel.buyer_name,
+                    "pixel_name": pixel.name,
+                    "dataset_id": pixel.dataset_id,
+                    "status_code": 0,
+                    "event_name": event_name,
+                    "event_id": event_id,
+                    "clickid": context.get("clickid"),
+                    "ttclid": context.get("ttclid"),
+                    "flow_id": context.get("flow_id"),
+                    "sended": logged_payload,
+                    "send_failed": True,
+                    "details": f"tiktok_send_failed: {e}",
+                })
+                raise HTTPException(status_code=502, detail="tiktok_send_failed")
+        if attempt == 0:
+            await asyncio.sleep(0.35)
+
+    result = public_tiktok_result(last_status, parsed, text)
+    log.info(
+        "TikTok Events API resp: tiktok_pixel_id=%s buyer=%s dataset_id=%s event=%s id=%s clickid=%s ttclid=%s code=%s request_id=%s msg=%s",
+        pixel.public_id,
+        pixel.buyer_name,
+        pixel.dataset_id,
+        event_name,
+        event_id,
+        context.get("clickid"),
+        context.get("ttclid"),
+        result.get("status_code"),
+        result.get("request_id"),
+        result.get("message"),
+    )
+    log_tiktok_to_redis({
+        "tiktok_pixel_id": pixel.public_id,
+        "buyer_name": pixel.buyer_name,
+        "pixel_name": pixel.name,
+        "dataset_id": pixel.dataset_id,
+        "status_code": result.get("status_code"),
+        "event_name": event_name,
+        "event_id": event_id,
+        "clickid": context.get("clickid"),
+        "ttclid": context.get("ttclid"),
+        "flow_id": context.get("flow_id"),
+        "status": context.get("status"),
+        "sended": logged_payload,
+        "code": result.get("code"),
+        "message": result.get("message"),
+        "request_id": result.get("request_id"),
+        "body": result.get("body"),
+    })
+    if result.get("status_code") in {429} or (result.get("status_code") and result["status_code"] >= 500):
+        raise HTTPException(status_code=502, detail="tiktok_temporary_error")
+    return result
 
 
 async def send_to_meta(
@@ -782,8 +1155,45 @@ def filter_meta_logs(
     return logs, selected_buyer
 
 
+def filter_tiktok_logs(
+    logs: List[Dict[str, Any]],
+    user: Dict[str, Any],
+    buyer: Optional[str] = "mine",
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    event: Optional[str] = None,
+    tiktok_pixel_id: Optional[str] = None,
+    clickid: Optional[str] = None,
+    ttclid: Optional[str] = None,
+    flow_id: Optional[str] = None,
+) -> tuple[List[Dict[str, Any]], str]:
+    selected_buyer = selected_buyer_for_user(user, buyer)
+    start_ts, end_ts = app_date_bounds(date_from, date_to)
+    if start_ts is not None:
+        logs = [row for row in logs if safe_int(row.get("_ts")) >= start_ts]
+    if end_ts is not None:
+        logs = [row for row in logs if safe_int(row.get("_ts")) < end_ts]
+    if event:
+        logs = [row for row in logs if str(row.get("event_name", "")).lower() == event.lower()]
+    if tiktok_pixel_id:
+        logs = [row for row in logs if row.get("tiktok_pixel_id") == tiktok_pixel_id]
+    if selected_buyer != "__all__":
+        logs = [row for row in logs if row_matches_filter(row, "buyer_name", selected_buyer)]
+    if clickid:
+        logs = [row for row in logs if row_matches_filter(row, "clickid", clickid)]
+    if ttclid:
+        logs = [row for row in logs if row_matches_filter(row, "ttclid", ttclid)]
+    if flow_id:
+        logs = [row for row in logs if row_matches_filter(row, "flow_id", flow_id)]
+    return logs, selected_buyer
+
+
 def available_buyers() -> List[str]:
     return sorted({row.get("buyer_name") for row in load_all_meta_logs() if row.get("buyer_name")})
+
+
+def available_tiktok_buyers() -> List[str]:
+    return sorted({row.get("buyer_name") for row in load_all_tiktok_logs() if row.get("buyer_name")})
 
 
 def is_error_log(row: Dict[str, Any]) -> bool:
@@ -955,6 +1365,14 @@ def pixel_query_for_user(db: Session, user: Dict[str, Any]):
     return query.filter(func.lower(Pixel.buyer_name) == buyer_name)
 
 
+def tiktok_pixel_query_for_user(db: Session, user: Dict[str, Any]):
+    query = db.query(TikTokPixel)
+    if user.get("is_admin"):
+        return query
+    buyer_name = str(user.get("buyer_name") or "").lower()
+    return query.filter(func.lower(TikTokPixel.buyer_name) == buyer_name)
+
+
 @app.get("/healthz")
 async def healthz():
     return {"ok": True}
@@ -1072,6 +1490,129 @@ async def admin_pixel_enable(public_id: str, db: Session = Depends(get_db), _: D
     pixel.updated_at = naive_app_now()
     db.commit()
     return RedirectResponse("/admin/pixels", status_code=303)
+
+
+@app.get("/admin/tiktok/pixels", response_class=HTMLResponse)
+async def admin_tiktok_pixels(request: Request, db: Session = Depends(get_db), user: Dict[str, Any] = Depends(require_user)):
+    pixels = tiktok_pixel_query_for_user(db, user).order_by(TikTokPixel.created_at.desc()).all()
+    return templates.TemplateResponse(
+        name="tiktok_pixels_list.html",
+        request=request,
+        context={"pixels": pixels, "mask_token": mask_token, "current_user": user},
+    )
+
+
+@app.get("/admin/tiktok/pixels/new", response_class=HTMLResponse)
+async def admin_tiktok_pixel_new(request: Request, user: Dict[str, Any] = Depends(require_admin_user)):
+    return templates.TemplateResponse(
+        name="tiktok_pixel_form.html",
+        request=request,
+        context={"pixel": None, "mode": "new", "masked_token": "", "current_user": user},
+    )
+
+
+@app.post("/admin/tiktok/pixels/new")
+async def admin_tiktok_pixel_create(request: Request, db: Session = Depends(get_db), _: Dict[str, Any] = Depends(require_admin_user)):
+    form = await parse_form(request)
+    pixel = TikTokPixel(
+        public_id=form.get("public_id", "").strip() or generate_unique_tiktok_public_id(db),
+        name=form.get("name", "").strip(),
+        buyer_name=form.get("buyer_name", "").strip() or None,
+        dataset_id=form.get("dataset_id", "").strip(),
+        access_token=form.get("access_token", "").strip(),
+        event_name=form.get("event_name", "").strip() or "CompletePayment",
+        currency=(form.get("currency", "").strip() or "USD").upper(),
+        allowed_statuses=form.get("allowed_statuses", "").strip() or None,
+        flow_ids=form.get("flow_ids", "").strip() or None,
+        test_event_code=form.get("test_event_code", "").strip() or None,
+        send_without_ttclid=form.get("send_without_ttclid") == "on",
+        is_active=form.get("is_active") == "on",
+        created_at=naive_app_now(),
+        updated_at=naive_app_now(),
+    )
+    if not pixel.name or not pixel.public_id or not pixel.dataset_id or not pixel.access_token:
+        raise HTTPException(status_code=400, detail="name_public_id_dataset_id_and_token_required")
+    db.add(pixel)
+    db.commit()
+    return RedirectResponse(f"/admin/tiktok/pixels/{pixel.public_id}/edit?created=1", status_code=303)
+
+
+@app.get("/admin/tiktok/pixels/{public_id}/edit", response_class=HTMLResponse)
+async def admin_tiktok_pixel_edit(
+    public_id: str,
+    request: Request,
+    created: Optional[int] = Query(default=None),
+    db: Session = Depends(get_db),
+    user: Dict[str, Any] = Depends(require_admin_user),
+):
+    pixel = db.query(TikTokPixel).filter(TikTokPixel.public_id == public_id).first()
+    if not pixel:
+        raise HTTPException(status_code=404, detail="tiktok_pixel_not_found")
+    return templates.TemplateResponse(
+        name="tiktok_pixel_form.html",
+        request=request,
+        context={
+            "pixel": pixel,
+            "mode": "edit",
+            "created": bool(created),
+            "masked_token": mask_token(pixel.access_token),
+            "current_user": user,
+        },
+    )
+
+
+@app.post("/admin/tiktok/pixels/{public_id}/edit")
+async def admin_tiktok_pixel_update(
+    public_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    _: Dict[str, Any] = Depends(require_admin_user),
+):
+    pixel = db.query(TikTokPixel).filter(TikTokPixel.public_id == public_id).first()
+    if not pixel:
+        raise HTTPException(status_code=404, detail="tiktok_pixel_not_found")
+
+    form = await parse_form(request)
+    pixel.name = form.get("name", "").strip()
+    pixel.buyer_name = form.get("buyer_name", "").strip() or None
+    pixel.dataset_id = form.get("dataset_id", "").strip()
+    new_token = form.get("access_token", "").strip()
+    if new_token:
+        pixel.access_token = new_token
+    pixel.event_name = form.get("event_name", "").strip() or "CompletePayment"
+    pixel.currency = (form.get("currency", "").strip() or "USD").upper()
+    pixel.allowed_statuses = form.get("allowed_statuses", "").strip() or None
+    pixel.flow_ids = form.get("flow_ids", "").strip() or None
+    pixel.test_event_code = form.get("test_event_code", "").strip() or None
+    pixel.send_without_ttclid = form.get("send_without_ttclid") == "on"
+    pixel.is_active = form.get("is_active") == "on"
+    pixel.updated_at = naive_app_now()
+    if not pixel.name or not pixel.dataset_id or not pixel.access_token:
+        raise HTTPException(status_code=400, detail="name_dataset_id_and_token_required")
+    db.commit()
+    return RedirectResponse(f"/admin/tiktok/pixels/{pixel.public_id}/edit?saved=1", status_code=303)
+
+
+@app.post("/admin/tiktok/pixels/{public_id}/disable")
+async def admin_tiktok_pixel_disable(public_id: str, db: Session = Depends(get_db), _: Dict[str, Any] = Depends(require_admin_user)):
+    pixel = db.query(TikTokPixel).filter(TikTokPixel.public_id == public_id).first()
+    if not pixel:
+        raise HTTPException(status_code=404, detail="tiktok_pixel_not_found")
+    pixel.is_active = False
+    pixel.updated_at = naive_app_now()
+    db.commit()
+    return RedirectResponse("/admin/tiktok/pixels", status_code=303)
+
+
+@app.post("/admin/tiktok/pixels/{public_id}/enable")
+async def admin_tiktok_pixel_enable(public_id: str, db: Session = Depends(get_db), _: Dict[str, Any] = Depends(require_admin_user)):
+    pixel = db.query(TikTokPixel).filter(TikTokPixel.public_id == public_id).first()
+    if not pixel:
+        raise HTTPException(status_code=404, detail="tiktok_pixel_not_found")
+    pixel.is_active = True
+    pixel.updated_at = naive_app_now()
+    db.commit()
+    return RedirectResponse("/admin/tiktok/pixels", status_code=303)
 
 
 @app.get("/admin/users", response_class=HTMLResponse)
@@ -1260,6 +1801,73 @@ async def admin_logs(
     )
 
 
+@app.get("/admin/tiktok/logs", response_class=HTMLResponse)
+async def admin_tiktok_logs(
+    request: Request,
+    limit: int = Query(default=100, ge=1, le=ADMIN_LOG_LIMIT_MAX),
+    date_from: Optional[str] = Query(default=None),
+    date_to: Optional[str] = Query(default=None),
+    status_filter: Optional[str] = Query(default=None, alias="status"),
+    event: Optional[str] = Query(default=None),
+    tiktok_pixel_id: Optional[str] = Query(default=None),
+    buyer: Optional[str] = Query(default="mine"),
+    clickid: Optional[str] = Query(default=None),
+    ttclid: Optional[str] = Query(default=None),
+    flow_id: Optional[str] = Query(default=None),
+    user: Dict[str, Any] = Depends(require_user),
+):
+    if clickid:
+        logs = load_clickid_tiktok_logs(clickid)
+    elif event:
+        logs = load_event_tiktok_logs(event)
+    else:
+        logs = load_all_tiktok_logs()
+
+    logs, selected_buyer = filter_tiktok_logs(
+        logs,
+        user=user,
+        buyer=buyer,
+        date_from=date_from,
+        date_to=date_to,
+        event=event,
+        tiktok_pixel_id=tiktok_pixel_id,
+        clickid=clickid,
+        ttclid=ttclid,
+        flow_id=flow_id,
+    )
+    if status_filter:
+        logs = [row for row in logs if str(row.get("status_code", "")) == status_filter]
+    total_filtered = len(logs)
+    logs = logs[:limit]
+
+    date_shortcuts = app_date_shortcuts()
+    return templates.TemplateResponse(
+        name="tiktok_logs.html",
+        request=request,
+        context={
+            "logs": logs,
+            "limit": limit,
+            "total_filtered": total_filtered,
+            "date_from": date_from or "",
+            "date_to": date_to or "",
+            "today_date": date_shortcuts["today"],
+            "yesterday_date": date_shortcuts["yesterday"],
+            "week_date": date_shortcuts["week"],
+            "app_timezone": APP_TIMEZONE,
+            "status_filter": status_filter or "",
+            "event": event or "",
+            "tiktok_pixel_id": tiktok_pixel_id or "",
+            "buyer": buyer or "mine",
+            "resolved_buyer": selected_buyer,
+            "buyers": available_tiktok_buyers(),
+            "clickid": clickid or "",
+            "ttclid": ttclid or "",
+            "flow_id": flow_id or "",
+            "current_user": user,
+        },
+    )
+
+
 @app.get("/admin/quality", response_class=HTMLResponse)
 async def admin_quality_dashboard(
     request: Request,
@@ -1329,6 +1937,142 @@ async def admin_click_diagnostics(
             "current_user": user,
         },
     )
+
+
+@app.post("/postbacks/whale/tiktok")
+async def whale_tiktok_postback(
+    pb: WhaleTikTokPostback,
+    request: Request,
+    secret: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    ensure_whale_tiktok_secret(request, secret)
+    context = {
+        "clickid": pb.click_uuid,
+        "ttclid": pb.ttclid,
+        "flow_id": pb.flow_id,
+        "status": pb.status,
+        "pixel_id": pb.pixel_id,
+    }
+
+    try:
+        pixel = get_tiktok_pixel_by_alias(pb.pixel_id, db, pb.flow_id)
+    except HTTPException as exc:
+        log.warning(
+            "TikTok postback pixel resolution failed: pixel_id=%s flow_id=%s event_id=%s status=%s reason=%s",
+            pb.pixel_id,
+            pb.flow_id,
+            pb.event_id,
+            pb.status,
+            exc.detail,
+        )
+        log_tiktok_to_redis({
+            "tiktok_pixel_id": pb.pixel_id,
+            "dataset_id": None,
+            "status_code": exc.status_code,
+            "event_name": pb.event or "CompletePayment",
+            "event_id": pb.event_id,
+            "clickid": pb.click_uuid,
+            "ttclid": pb.ttclid,
+            "flow_id": pb.flow_id,
+            "status": pb.status,
+            "rejected": True,
+            "details": str(exc.detail),
+        })
+        raise
+
+    event_name = pixel.event_name or pb.event or "CompletePayment"
+    allowed_statuses = tiktok_allowed_statuses(pixel)
+    if (pb.status or "").strip().lower() not in allowed_statuses:
+        log_tiktok_to_redis({
+            "tiktok_pixel_id": pixel.public_id,
+            "buyer_name": pixel.buyer_name,
+            "pixel_name": pixel.name,
+            "dataset_id": pixel.dataset_id,
+            "status_code": 200,
+            "event_name": event_name,
+            "event_id": pb.event_id,
+            "clickid": pb.click_uuid,
+            "ttclid": pb.ttclid,
+            "flow_id": pb.flow_id,
+            "status": pb.status,
+            "ignored": True,
+            "details": "status_not_allowed",
+        })
+        return {"ok": True, "ignored": True, "reason": "status_not_allowed"}
+
+    if is_macro_or_empty(pb.ttclid):
+        log.warning(
+            "TikTok postback has weak ttclid: tiktok_pixel_id=%s dataset_id=%s event_id=%s ttclid=%s",
+            pixel.public_id,
+            pixel.dataset_id,
+            pb.event_id,
+            pb.ttclid,
+        )
+        if not pixel.send_without_ttclid:
+            log_tiktok_to_redis({
+                "tiktok_pixel_id": pixel.public_id,
+                "buyer_name": pixel.buyer_name,
+                "pixel_name": pixel.name,
+                "dataset_id": pixel.dataset_id,
+                "status_code": 200,
+                "event_name": event_name,
+                "event_id": pb.event_id,
+                "clickid": pb.click_uuid,
+                "ttclid": pb.ttclid,
+                "flow_id": pb.flow_id,
+                "status": pb.status,
+                "ignored": True,
+                "weak_matching": True,
+                "details": "ttclid_missing",
+            })
+            return {"ok": True, "ignored": True, "reason": "ttclid_missing"}
+
+    if not mark_tiktok_event_for_send(pixel.dataset_id, event_name, pb.event_id):
+        log.warning(
+            "Duplicate TikTok event skipped: tiktok_pixel_id=%s dataset_id=%s event=%s id=%s clickid=%s ttclid=%s",
+            pixel.public_id,
+            pixel.dataset_id,
+            event_name,
+            pb.event_id,
+            pb.click_uuid,
+            pb.ttclid,
+        )
+        log_tiktok_to_redis({
+            "tiktok_pixel_id": pixel.public_id,
+            "buyer_name": pixel.buyer_name,
+            "pixel_name": pixel.name,
+            "dataset_id": pixel.dataset_id,
+            "status_code": 208,
+            "event_name": event_name,
+            "event_id": pb.event_id,
+            "clickid": pb.click_uuid,
+            "ttclid": pb.ttclid,
+            "flow_id": pb.flow_id,
+            "status": pb.status,
+            "skipped_duplicate": True,
+            "details": "duplicate_event_id_skipped",
+        })
+        return {
+            "ok": True,
+            "accepted": False,
+            "duplicate": True,
+            "tiktok_pixel_id": pixel.public_id,
+            "dataset_id": pixel.dataset_id,
+            "event_id": pb.event_id,
+            "reason": "duplicate_event_id",
+        }
+
+    payload = build_tiktok_payload(pb, pixel, request)
+    tiktok_result = await send_to_tiktok(payload, pixel, context)
+    return {
+        "ok": True,
+        "accepted": True,
+        "tiktok_pixel_id": pixel.public_id,
+        "dataset_id": pixel.dataset_id,
+        "event_id": pb.event_id,
+        "tiktok": tiktok_result,
+    }
 
 
 @app.post("/api/pixel/track")

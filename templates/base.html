@@ -194,8 +194,10 @@
   <header>
     <strong class="brand">API Pixel</strong>
     <nav class="nav-pills" aria-label="Admin navigation">
-      <a href="/admin/pixels" class="{% if request.url.path.startswith('/admin/pixels') %}is-active{% endif %}">Пиксели</a>
+      <a href="/admin/pixels" class="{% if request.url.path.startswith('/admin/pixels') %}is-active{% endif %}">FB Pixels</a>
+      <a href="/admin/tiktok/pixels" class="{% if request.url.path.startswith('/admin/tiktok/pixels') %}is-active{% endif %}">TT Pixels</a>
       <a href="/admin/logs" class="{% if request.url.path == '/admin/logs' %}is-active{% endif %}">Логи Meta</a>
+      <a href="/admin/tiktok/logs" class="{% if request.url.path == '/admin/tiktok/logs' %}is-active{% endif %}">Логи TikTok</a>
       <a href="/admin/quality" class="{% if request.url.path == '/admin/quality' %}is-active{% endif %}">Quality</a>
       <a href="/admin/diagnostics" class="{% if request.url.path == '/admin/diagnostics' %}is-active{% endif %}">Diagnostics</a>
     {% if current_user and current_user.is_admin %}
