@@ -6,7 +6,7 @@
   Пользователь: {{ current_user.username }}; роль: {{ current_user.role }}; buyer: {{ resolved_buyer }}.
 </p>
 
-<form class="filters" method="get" action="/admin/tiktok/logs">
+<form class="filters" method="get" action="/admin/tiktok/logs" id="tiktok-logs-filter-form">
   <input name="limit" type="number" min="1" max="1000" value="{{ limit }}">
   <input name="date_from" type="date" value="{{ date_from }}">
   <input name="date_to" type="date" value="{{ date_to }}">
@@ -26,7 +26,7 @@
     {% endif %}
   </select>
   <button class="btn" type="submit">Фильтр</button>
-  <a class="btn secondary" href="/admin/tiktok/logs">Сбросить</a>
+  <a class="btn secondary" href="/admin/tiktok/logs" id="tiktok-logs-filter-reset">Сбросить</a>
 </form>
 
 <div class="quick-filters">
@@ -36,57 +36,559 @@
   <a class="btn secondary" href="/admin/tiktok/pixels">TT Pixels</a>
 </div>
 
-<div class="table-wrap">
-  <table class="logs-table">
-    <thead>
-      <tr>
-        <th>time</th>
-        <th>status</th>
-        <th>event</th>
-        <th>tiktok_pixel_id</th>
-        <th>buyer</th>
-        <th>dataset_id</th>
-        <th>event_id</th>
-        <th>clickid</th>
-        <th>ttclid</th>
-        <th>flow_id</th>
-        <th>request_id</th>
-        <th>details</th>
-        <th>sended</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for row in logs %}
-      <tr class="{% if row.skipped_duplicate %}duplicate-row{% endif %}">
-        <td>{{ row.when or row._ts }}</td>
-        <td class="{% if row.status_code and row.status_code|int >= 400 %}status-bad{% elif row.status_code == 208 %}status-warn{% else %}status-ok{% endif %}">{{ row.status_code }}</td>
-        <td>{{ row.event_name }}</td>
-        <td><code>{{ row.tiktok_pixel_id }}</code></td>
-        <td>{{ row.buyer_name }}</td>
-        <td><code>{{ row.dataset_id }}</code></td>
-        <td class="mono long">{{ row.event_id }}</td>
-        <td class="mono long">{{ row.clickid }}</td>
-        <td class="mono long">{{ row.ttclid }}</td>
-        <td class="mono long">{{ row.flow_id }}</td>
-        <td class="mono long">{{ row.request_id }}</td>
-        <td>
-          {% if row.ignored %}<span class="pill">ignored</span>{% endif %}
-          {% if row.rejected %}<span class="pill">rejected</span>{% endif %}
-          {% if row.skipped_duplicate %}<span class="pill">duplicate skipped</span>{% endif %}
-          {% if row.details %}<div class="mono">{{ row.details }}</div>{% endif %}
-          {% if row.message %}<div>{{ row.message }}</div>{% endif %}
-        </td>
-        <td class="payload-cell">
-          {% if row.sended %}
-          <details>
-            <summary>payload</summary>
-            <pre class="payload-view">{{ row.sended }}</pre>
-          </details>
-          {% endif %}
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+<div class="table-toolbar">
+  <label for="tiktok-logs-font-size">Размер шрифта</label>
+  <input id="tiktok-logs-font-size" type="range" min="10" max="18" step="1" value="13">
+  <output id="tiktok-logs-font-size-value" for="tiktok-logs-font-size">13px</output>
+  <button class="btn secondary" type="button" id="tiktok-logs-font-size-reset">Сбросить</button>
 </div>
+
+<div class="table-shell">
+  <button class="table-settings-button" type="button" id="tiktok-table-settings-button" aria-label="Настроить столбцы" aria-expanded="false">
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z" stroke-width="1.8"/>
+      <path d="M19.4 13.5c.1-.5.1-1 .1-1.5s0-1-.1-1.5l2-1.5-2-3.4-2.4 1a8 8 0 0 0-2.6-1.5L14 2.5h-4l-.4 2.6A8 8 0 0 0 7 6.6l-2.4-1-2 3.4 2 1.5a9 9 0 0 0 0 3l-2 1.5 2 3.4 2.4-1a8 8 0 0 0 2.6 1.5l.4 2.6h4l.4-2.6a8 8 0 0 0 2.6-1.5l2.4 1 2-3.4-2-1.5Z" stroke-width="1.8" stroke-linejoin="round"/>
+    </svg>
+  </button>
+
+  <div class="column-settings-popover" id="tiktok-column-settings-popover" aria-hidden="true">
+    <div class="layout-presets">
+      <div class="layout-presets-head">
+        <p class="column-settings-title">Сохраненные шаблоны</p>
+        <button class="layout-save-button" type="button" id="tiktok-layout-save-button" aria-label="Сохранить шаблон">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 5v14M5 12h14" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </div>
+      <select id="tiktok-layout-presets-select" aria-label="Сохраненные шаблоны">
+        <option value="">Нет выбранного шаблона</option>
+      </select>
+    </div>
+    <div class="column-filter-tabs" role="group" aria-label="Фильтр столбцов">
+      <button type="button" class="is-active" data-filter="all">All</button>
+      <button type="button" data-filter="visible">Visible</button>
+      <button type="button" data-filter="hidden">Hidden</button>
+    </div>
+    <p class="column-settings-title">Столбцы таблицы</p>
+    <div class="column-settings-list" id="tiktok-column-settings-list"></div>
+  </div>
+
+  <div class="table-wrap">
+    <table class="logs-table resizable-table" data-resize-key="api-pixel:tiktok-logs-column-widths:v1" data-columns-key="api-pixel:tiktok-logs-visible-columns:v1" data-order-key="api-pixel:tiktok-logs-column-order:v1">
+      <colgroup>
+        <col data-col="row_number" style="width: 20px">
+        <col data-col="time" style="width: 160px">
+        <col data-col="status" style="width: 82px">
+        <col data-col="event" style="width: 120px">
+        <col data-col="tiktok_pixel_id" style="width: 180px">
+        <col data-col="buyer" style="width: 120px">
+        <col data-col="dataset_id" style="width: 190px">
+        <col data-col="event_id" style="width: 220px">
+        <col data-col="clickid" style="width: 180px">
+        <col data-col="ttclid" style="width: 220px">
+        <col data-col="flow_id" style="width: 160px">
+        <col data-col="request_id" style="width: 240px">
+        <col data-col="details" style="width: 220px">
+        <col data-col="sended" style="width: 260px">
+      </colgroup>
+      <thead>
+        <tr>
+          <th data-col="row_number">#</th>
+          <th data-col="time">time</th>
+          <th data-col="status">status</th>
+          <th data-col="event">event</th>
+          <th data-col="tiktok_pixel_id">tiktok_pixel_id</th>
+          <th data-col="buyer">buyer</th>
+          <th data-col="dataset_id">dataset_id</th>
+          <th data-col="event_id">event_id</th>
+          <th data-col="clickid">clickid</th>
+          <th data-col="ttclid">ttclid</th>
+          <th data-col="flow_id">flow_id</th>
+          <th data-col="request_id">request_id</th>
+          <th data-col="details">details</th>
+          <th data-col="sended">sended</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in logs %}
+        <tr class="{% if row.skipped_duplicate %}duplicate-row{% endif %}">
+          <td class="row-number" data-col="row_number">{{ loop.index }}</td>
+          <td data-col="time">{{ row.when or row._ts }}</td>
+          <td data-col="status" class="{% if row.status_code and row.status_code|int >= 400 %}status-bad{% elif row.status_code == 208 %}status-warn{% else %}status-ok{% endif %}">{{ row.status_code }}</td>
+          <td data-col="event">{{ row.event_name }}</td>
+          <td data-col="tiktok_pixel_id"><code>{{ row.tiktok_pixel_id }}</code></td>
+          <td data-col="buyer">{{ row.buyer_name }}</td>
+          <td data-col="dataset_id"><code>{{ row.dataset_id }}</code></td>
+          <td data-col="event_id" class="mono long">{{ row.event_id }}</td>
+          <td data-col="clickid" class="mono long">{{ row.clickid }}</td>
+          <td data-col="ttclid" class="mono long">{{ row.ttclid }}</td>
+          <td data-col="flow_id" class="mono long">{{ row.flow_id }}</td>
+          <td data-col="request_id" class="mono long">{{ row.request_id }}</td>
+          <td data-col="details">
+            {% if row.ignored %}<span class="pill">ignored</span>{% endif %}
+            {% if row.rejected %}<span class="pill">rejected</span>{% endif %}
+            {% if row.skipped_duplicate %}<span class="pill">duplicate skipped</span>{% endif %}
+            {% if row.details %}<div class="mono">{{ row.details }}</div>{% endif %}
+            {% if row.message %}<div>{{ row.message }}</div>{% endif %}
+          </td>
+          <td data-col="sended" class="payload-cell">
+            {% if row.sended %}
+            <details>
+              <summary>payload</summary>
+              <pre class="payload-view">{{ row.sended }}</pre>
+            </details>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+(() => {
+  const table = document.querySelector(".resizable-table");
+  if (!table) return;
+
+  const currentUsername = {{ current_user.username|default("guest")|tojson }};
+  const storageKey = table.dataset.resizeKey || "api-pixel:tiktok-logs-column-widths:v1";
+  const columnsKey = table.dataset.columnsKey || "api-pixel:tiktok-logs-visible-columns:v1";
+  const orderKey = table.dataset.orderKey || "api-pixel:tiktok-logs-column-order:v1";
+  const templatesKey = `api-pixel:tiktok-logs-layout-templates:${currentUsername}`;
+  const activeTemplateKey = `api-pixel:tiktok-logs-active-layout-template:${currentUsername}`;
+  const fontSizeKey = "api-pixel:tiktok-logs-font-size:v1";
+  const filterStateKey = `api-pixel:tiktok-logs-last-filter:${currentUsername}`;
+  const minWidth = 40;
+  const fixedColumnWidths = { row_number: 20 };
+  let cols = Array.from(table.querySelectorAll("colgroup col"));
+  let headers = Array.from(table.querySelectorAll("thead th"));
+
+  const fontInput = document.querySelector("#tiktok-logs-font-size");
+  const fontOutput = document.querySelector("#tiktok-logs-font-size-value");
+  const fontReset = document.querySelector("#tiktok-logs-font-size-reset");
+  const filterForm = document.querySelector("#tiktok-logs-filter-form");
+  const filterReset = document.querySelector("#tiktok-logs-filter-reset");
+  const settingsButton = document.querySelector("#tiktok-table-settings-button");
+  const settingsPopover = document.querySelector("#tiktok-column-settings-popover");
+  const settingsList = document.querySelector("#tiktok-column-settings-list");
+  const filterButtons = Array.from(document.querySelectorAll(".column-filter-tabs button"));
+  const layoutSaveButton = document.querySelector("#tiktok-layout-save-button");
+  const layoutPresetsSelect = document.querySelector("#tiktok-layout-presets-select");
+
+  const readJson = (store, key, fallback) => {
+    try {
+      const value = JSON.parse(store.getItem(key) || "null");
+      return value === null ? fallback : value;
+    } catch (e) {
+      return fallback;
+    }
+  };
+
+  function refreshColumnRefs() {
+    cols = Array.from(table.querySelectorAll("colgroup col"));
+    headers = Array.from(table.querySelectorAll("thead th"));
+  }
+
+  function assignCellColumnKeys() {
+    Array.from(table.querySelectorAll("tbody tr")).forEach((row) => {
+      Array.from(row.children).forEach((cell, index) => {
+        const key = cols[index] ? cols[index].dataset.col : "";
+        if (key) cell.dataset.col = key;
+      });
+    });
+  }
+
+  function currentWidths() {
+    const widths = {};
+    cols.forEach((col) => {
+      const key = col.dataset.col;
+      if (key && !col.classList.contains("is-column-hidden")) {
+        widths[key] = Math.round(col.getBoundingClientRect().width);
+      }
+    });
+    return widths;
+  }
+
+  function applySavedWidths() {
+    const saved = readJson(sessionStorage, storageKey, {});
+    cols.forEach((col) => {
+      const key = col.dataset.col;
+      if (fixedColumnWidths[key]) {
+        col.style.width = `${fixedColumnWidths[key]}px`;
+        return;
+      }
+      const width = Number(saved[key]);
+      if (key && Number.isFinite(width) && width >= minWidth) col.style.width = `${width}px`;
+    });
+  }
+
+  function installHandles() {
+    headers.forEach((th, index) => {
+      const key = th.dataset.col;
+      if (!key || fixedColumnWidths[key]) return;
+      const handle = document.createElement("span");
+      handle.className = "column-resize-handle";
+      handle.setAttribute("aria-hidden", "true");
+      th.appendChild(handle);
+
+      handle.addEventListener("mousedown", (event) => {
+        event.preventDefault();
+        const col = cols[index];
+        const startX = event.clientX;
+        const startWidth = col.getBoundingClientRect().width;
+        document.body.classList.add("column-resizing");
+        th.classList.add("is-resizing");
+
+        const onMove = (moveEvent) => {
+          const nextWidth = Math.max(minWidth, startWidth + moveEvent.clientX - startX);
+          col.style.width = `${Math.round(nextWidth)}px`;
+        };
+        const onUp = () => {
+          document.removeEventListener("mousemove", onMove);
+          document.removeEventListener("mouseup", onUp);
+          document.body.classList.remove("column-resizing");
+          th.classList.remove("is-resizing");
+          sessionStorage.setItem(storageKey, JSON.stringify(currentWidths()));
+        };
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+      });
+    });
+  }
+
+  function applyFontSize(value) {
+    const size = Math.min(18, Math.max(10, Number(value) || 13));
+    table.style.setProperty("--logs-font-size", `${size}px`);
+    if (fontInput) fontInput.value = String(size);
+    if (fontOutput) fontOutput.textContent = `${size}px`;
+    return size;
+  }
+
+  function readHiddenColumns() {
+    const value = readJson(sessionStorage, columnsKey, []);
+    return new Set(Array.isArray(value) ? value : []);
+  }
+
+  function saveHiddenColumns(hidden) {
+    sessionStorage.setItem(columnsKey, JSON.stringify(Array.from(hidden)));
+  }
+
+  function readColumnOrder() {
+    const value = readJson(sessionStorage, orderKey, []);
+    return Array.isArray(value) ? value : [];
+  }
+
+  function saveColumnOrder() {
+    sessionStorage.setItem(orderKey, JSON.stringify(cols.map((col) => col.dataset.col).filter(Boolean)));
+  }
+
+  function applyColumnOrder(order) {
+    const normalizedOrder = Array.isArray(order) ? order.filter(Boolean) : [];
+    if (!normalizedOrder.length) return;
+    const colgroup = table.querySelector("colgroup");
+    const headRow = table.querySelector("thead tr");
+    const rows = Array.from(table.querySelectorAll("tbody tr"));
+    const knownKeys = cols.map((col) => col.dataset.col).filter(Boolean);
+    const finalOrder = ["row_number"]
+      .concat(normalizedOrder.filter((key) => key !== "row_number"))
+      .concat(knownKeys.filter((key) => key !== "row_number" && !normalizedOrder.includes(key)));
+
+    finalOrder.forEach((key) => {
+      const col = colgroup.querySelector(`col[data-col="${key}"]`);
+      const th = headRow.querySelector(`th[data-col="${key}"]`);
+      if (col) colgroup.appendChild(col);
+      if (th) headRow.appendChild(th);
+      rows.forEach((row) => {
+        const cell = row.querySelector(`td[data-col="${key}"]`);
+        if (cell) row.appendChild(cell);
+      });
+    });
+    refreshColumnRefs();
+  }
+
+  function applyColumnVisibility(hidden) {
+    cols.forEach((col) => {
+      const key = col.dataset.col;
+      const isHidden = hidden.has(key);
+      col.classList.toggle("is-column-hidden", isHidden);
+      table.querySelectorAll(`[data-col="${key}"]`).forEach((cell) => {
+        cell.classList.toggle("is-column-hidden", isHidden);
+      });
+    });
+    if (settingsList) {
+      settingsList.querySelectorAll(".column-toggle").forEach((button) => {
+        const isHidden = hidden.has(button.dataset.col);
+        button.classList.toggle("is-hidden", isHidden);
+        button.setAttribute("aria-pressed", String(!isHidden));
+      });
+    }
+    applyColumnFilter();
+  }
+
+  function snapshotLayout() {
+    return {
+      fontSize: Number(fontInput ? fontInput.value : 13) || 13,
+      hiddenColumns: Array.from(readHiddenColumns()),
+      widths: currentWidths(),
+      order: cols.map((col) => col.dataset.col).filter(Boolean),
+    };
+  }
+
+  function applyLayout(layout) {
+    if (!layout) return;
+    applyColumnOrder(layout.order);
+    if (layout.widths) {
+      cols.forEach((col) => {
+        const width = Number(layout.widths[col.dataset.col]);
+        if (Number.isFinite(width) && width >= minWidth) col.style.width = `${width}px`;
+      });
+      sessionStorage.setItem(storageKey, JSON.stringify(layout.widths));
+    }
+    if (layout.hiddenColumns) {
+      const hidden = new Set(layout.hiddenColumns);
+      saveHiddenColumns(hidden);
+      applyColumnVisibility(hidden);
+    }
+    if (layout.fontSize) {
+      const size = applyFontSize(layout.fontSize);
+      sessionStorage.setItem(fontSizeKey, String(size));
+    }
+    saveColumnOrder();
+    renderColumnSettings();
+  }
+
+  function loadTemplates() {
+    const value = readJson(localStorage, templatesKey, []);
+    return Array.isArray(value) ? value : [];
+  }
+
+  function saveTemplates(templates) {
+    localStorage.setItem(templatesKey, JSON.stringify(templates));
+  }
+
+  function activeTemplate() {
+    const activeId = localStorage.getItem(activeTemplateKey);
+    return loadTemplates().find((item) => item.id === activeId) || null;
+  }
+
+  function renderTemplateSelect() {
+    if (!layoutPresetsSelect) return;
+    const activeId = localStorage.getItem(activeTemplateKey) || "";
+    layoutPresetsSelect.innerHTML = '<option value="">Нет выбранного шаблона</option>';
+    loadTemplates().forEach((item) => {
+      const option = document.createElement("option");
+      option.value = item.id;
+      option.textContent = item.name;
+      option.selected = item.id === activeId;
+      layoutPresetsSelect.appendChild(option);
+    });
+  }
+
+  function installLayoutTemplates() {
+    renderTemplateSelect();
+    const selectedTemplate = activeTemplate();
+    if (selectedTemplate) applyLayout(selectedTemplate.layout);
+
+    if (layoutSaveButton) {
+      layoutSaveButton.addEventListener("click", () => {
+        const name = prompt("Название шаблона", `Шаблон ${loadTemplates().length + 1}`);
+        if (!name) return;
+        const templates = loadTemplates();
+        const item = {
+          id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          name,
+          layout: snapshotLayout(),
+        };
+        templates.push(item);
+        saveTemplates(templates);
+        localStorage.setItem(activeTemplateKey, item.id);
+        renderTemplateSelect();
+      });
+    }
+
+    if (layoutPresetsSelect) {
+      layoutPresetsSelect.addEventListener("change", () => {
+        const id = layoutPresetsSelect.value;
+        if (!id) {
+          localStorage.removeItem(activeTemplateKey);
+          return;
+        }
+        const item = loadTemplates().find((template) => template.id === id);
+        if (!item) return;
+        localStorage.setItem(activeTemplateKey, id);
+        applyLayout(item.layout);
+      });
+    }
+  }
+
+  function eyeIcon() {
+    return `
+      <svg class="eye" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+        <path d="M12 14.8a2.8 2.8 0 1 0 0-5.6 2.8 2.8 0 0 0 0 5.6Z" stroke="currentColor" stroke-width="1.8"/>
+        <path class="eye-off-line" d="M4 20 20 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+      </svg>
+    `;
+  }
+
+  function burgerIcon() {
+    return `
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M8 7h8M8 12h8M8 17h8" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+    `;
+  }
+
+  function currentColumnFilter() {
+    const active = filterButtons.find((button) => button.classList.contains("is-active"));
+    return active ? active.dataset.filter : "all";
+  }
+
+  function applyColumnFilter() {
+    if (!settingsList) return;
+    const filter = currentColumnFilter();
+    settingsList.querySelectorAll(".column-toggle").forEach((item) => {
+      const hidden = item.classList.contains("is-hidden");
+      item.classList.toggle("is-filter-hidden", (filter === "visible" && hidden) || (filter === "hidden" && !hidden));
+    });
+  }
+
+  function moveColumnInSettings(dragged, target, event) {
+    if (!dragged || !target || dragged === target) return;
+    const targetRect = target.getBoundingClientRect();
+    const after = event.clientY > targetRect.top + targetRect.height / 2;
+    settingsList.insertBefore(dragged, after ? target.nextSibling : target);
+    const order = Array.from(settingsList.querySelectorAll(".column-toggle")).map((item) => item.dataset.col);
+    applyColumnOrder(order);
+    saveColumnOrder();
+    applyColumnVisibility(readHiddenColumns());
+  }
+
+  function renderColumnSettings() {
+    if (!settingsList) return;
+    const hidden = readHiddenColumns();
+    settingsList.innerHTML = "";
+    headers.forEach((th) => {
+      const key = th.dataset.col;
+      if (!key || key === "row_number") return;
+      const item = document.createElement("div");
+      item.className = "column-toggle";
+      item.dataset.col = key;
+      item.innerHTML = `
+        <span class="column-name">${th.textContent.trim()}</span>
+        <button class="column-eye-button" type="button" aria-label="Показать или скрыть столбец">${eyeIcon()}</button>
+        <span class="column-drag-handle" draggable="true" aria-label="Перетащить столбец">${burgerIcon()}</span>
+      `;
+      item.querySelector(".column-eye-button").addEventListener("click", () => {
+        hidden.has(key) ? hidden.delete(key) : hidden.add(key);
+        saveHiddenColumns(hidden);
+        applyColumnVisibility(hidden);
+      });
+      item.querySelector(".column-drag-handle").addEventListener("dragstart", (event) => {
+        item.classList.add("is-dragging");
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", key);
+      });
+      item.querySelector(".column-drag-handle").addEventListener("dragend", () => item.classList.remove("is-dragging"));
+      item.addEventListener("dragover", (event) => event.preventDefault());
+      item.addEventListener("drop", (event) => {
+        event.preventDefault();
+        const dragged = settingsList.querySelector(`.column-toggle[data-col="${event.dataTransfer.getData("text/plain")}"]`);
+        moveColumnInSettings(dragged, item, event);
+      });
+      settingsList.appendChild(item);
+    });
+    applyColumnVisibility(hidden);
+  }
+
+  function installColumnSettings() {
+    if (!settingsButton || !settingsPopover || !settingsList) return;
+    applyColumnOrder(readColumnOrder());
+    renderColumnSettings();
+    filterButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        filterButtons.forEach((item) => item.classList.remove("is-active"));
+        button.classList.add("is-active");
+        applyColumnFilter();
+      });
+    });
+    settingsButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const nextOpen = !settingsPopover.classList.contains("is-open");
+      settingsPopover.classList.toggle("is-open", nextOpen);
+      settingsPopover.setAttribute("aria-hidden", String(!nextOpen));
+      settingsButton.classList.toggle("is-open", nextOpen);
+      settingsButton.setAttribute("aria-expanded", String(nextOpen));
+    });
+    document.addEventListener("click", (event) => {
+      if (!settingsPopover.classList.contains("is-open")) return;
+      if (settingsPopover.contains(event.target) || settingsButton.contains(event.target)) return;
+      settingsPopover.classList.remove("is-open");
+      settingsPopover.setAttribute("aria-hidden", "true");
+      settingsButton.classList.remove("is-open");
+      settingsButton.setAttribute("aria-expanded", "false");
+    });
+    applyColumnVisibility(readHiddenColumns());
+  }
+
+  function installFontSizeControl() {
+    if (!fontInput) return;
+    applyFontSize(sessionStorage.getItem(fontSizeKey) || fontInput.value || 13);
+    fontInput.addEventListener("input", () => {
+      const size = applyFontSize(fontInput.value);
+      sessionStorage.setItem(fontSizeKey, String(size));
+    });
+    if (fontReset) {
+      fontReset.addEventListener("click", () => {
+        const template = activeTemplate();
+        if (template) {
+          applyLayout(template.layout);
+          return;
+        }
+        sessionStorage.removeItem(fontSizeKey);
+        sessionStorage.removeItem(storageKey);
+        sessionStorage.removeItem(columnsKey);
+        sessionStorage.removeItem(orderKey);
+        applyFontSize(13);
+        applyColumnVisibility(new Set());
+      });
+    }
+  }
+
+  function installFilterMemory() {
+    if (!filterForm || !filterReset) return;
+    const params = new URLSearchParams(window.location.search);
+    if (!params.toString()) {
+      const saved = sessionStorage.getItem(filterStateKey);
+      if (saved) {
+        window.location.replace(`${filterForm.getAttribute("action")}?${saved}`);
+        return;
+      }
+    } else {
+      sessionStorage.setItem(filterStateKey, params.toString());
+    }
+    filterForm.addEventListener("submit", () => {
+      const data = new FormData(filterForm);
+      const next = new URLSearchParams();
+      data.forEach((value, key) => {
+        const text = String(value || "").trim();
+        if (text) next.set(key, text);
+      });
+      sessionStorage.setItem(filterStateKey, next.toString());
+    });
+    filterReset.addEventListener("click", () => sessionStorage.removeItem(filterStateKey));
+  }
+
+  assignCellColumnKeys();
+  installFilterMemory();
+  applyColumnOrder(readColumnOrder());
+  applySavedWidths();
+  installFontSizeControl();
+  installLayoutTemplates();
+  installColumnSettings();
+  installHandles();
+})();
+</script>
 {% endblock %}
