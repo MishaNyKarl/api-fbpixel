@@ -100,7 +100,7 @@ def create_pixel():
             buyer_name="admin",
             dataset_id="D75QFE3C77UDH74CJM70",
             access_token="TT_TOKEN",
-            event_name="Purchase",
+            event_name="SubmitForm",
             currency="USD",
             allowed_statuses="Approved,Paid",
             flow_ids="flow-main",
@@ -113,7 +113,7 @@ def create_pixel():
             buyer_name="other-buyer",
             dataset_id="OTHER_DATASET",
             access_token="OTHER_TT_TOKEN",
-            event_name="Purchase",
+            event_name="SubmitForm",
             currency="USD",
             allowed_statuses="Approved,Paid",
             is_active=True,
@@ -229,11 +229,11 @@ def main_test():
         assert whale.status_code == 200, whale.text
         assert whale.json()["ok"] is True
         assert whale.json()["dataset_id"] == "D75QFE3C77UDH74CJM70"
-        assert whale.json()["event_name"] == "Purchase"
+        assert whale.json()["event_name"] == "SubmitForm"
         assert len(fake_send_to_tiktok.calls) == 1
         sent_payload = fake_send_to_tiktok.calls[-1][0]
         assert sent_payload["event_source_id"] == "D75QFE3C77UDH74CJM70"
-        assert sent_payload["data"][0]["event"] == "Purchase"
+        assert sent_payload["data"][0]["event"] == "SubmitForm"
         assert sent_payload["data"][0]["event_id"] == "conversion_1"
         assert sent_payload["data"][0]["user"]["ttclid"] == "ttclid_1"
         assert sent_payload["data"][0]["properties"]["value"] == 14.5
@@ -278,7 +278,7 @@ def main_test():
         unknown = client.post("/postbacks/whale/tiktok?secret=whale-secret", json=unknown_payload)
         assert unknown.status_code == 400, unknown.text
 
-        tiktok_logs = client.get("/admin/tiktok/logs?buyer=__all__&event=Purchase", auth=("admin", "admin"))
+        tiktok_logs = client.get("/admin/tiktok/logs?buyer=__all__&event=SubmitForm", auth=("admin", "admin"))
         assert tiktok_logs.status_code == 200, tiktok_logs.text
         assert "conversion_1" in tiktok_logs.text
         assert "TT_TOKEN" not in tiktok_logs.text

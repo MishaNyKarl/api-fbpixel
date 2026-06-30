@@ -45,7 +45,7 @@
   <div class="row">
     <div>
       <label>Event name</label>
-      <input name="event_name" list="tiktok-event-options" value="{{ pixel.event_name if pixel else 'Purchase' }}">
+      <input name="event_name" list="tiktok-event-options" value="{{ pixel.event_name if pixel else 'SubmitForm' }}">
       <datalist id="tiktok-event-options">
         {% for event_name in tiktok_events %}
         <option value="{{ event_name }}"></option>

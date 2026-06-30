@@ -129,7 +129,7 @@ TikTok pixel fields:
 - `buyer_name` - buyer name used in logs and filters
 - `dataset_id` - real TikTok Dataset/Pixel ID
 - `access_token` - real TikTok Events API token, server-only
-- `event_name` - TikTok event sent to Events API, usually `Purchase`; Whale may still send `CompletePayment` in its own payload
+- `event_name` - TikTok event sent to Events API, usually `SubmitForm`; Whale may still send `CompletePayment` in its own payload
 - `currency` - default currency, usually `USD`
 - `allowed_statuses` - comma/newline list, default `Approved,Paid`
 - `flow_ids` - optional Whale flow aliases used as fallback mapping
@@ -250,7 +250,7 @@ For manual diagnostics only, the TikTok event can be overridden in the URL:
 POST /postbacks/whale/tiktok?secret=<WHALE_TIKTOK_SECRET>&tiktok_event=SubmitForm
 ```
 
-In production, keep the desired event in `/admin/tiktok/pixels`. Common values are `Purchase`, `SubmitForm`, `CompleteRegistration`, `Contact`, `InitiateCheckout`, `AddToCart`, and `ViewContent`.
+In production, keep the desired event in `/admin/tiktok/pixels`. The default is `SubmitForm`. Common values are `SubmitForm`, `Purchase`, `CompleteRegistration`, `Contact`, `InitiateCheckout`, `AddToCart`, and `ViewContent`.
 
 The secret can also be sent as:
 

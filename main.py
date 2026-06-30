@@ -66,8 +66,8 @@ TIKTOK_CLICK_LOG_MAX = int(os.getenv("TIKTOK_CLICK_LOG_MAX", str(META_CLICK_LOG_
 ADMIN_LOG_LIMIT_MAX = int(os.getenv("ADMIN_LOG_LIMIT_MAX", "1000"))
 CLICK_TTL = 60 * 60 * 24 * 11
 TIKTOK_STANDARD_EVENTS = [
-    "Purchase",
     "SubmitForm",
+    "Purchase",
     "CompleteRegistration",
     "Contact",
     "InitiateCheckout",
@@ -162,7 +162,7 @@ class TikTokPixel(Base):
     buyer_name = Column(String(255), nullable=True)
     dataset_id = Column(String(255), nullable=False)
     access_token = Column(Text, nullable=False)
-    event_name = Column(String(128), nullable=False, default="Purchase")
+    event_name = Column(String(128), nullable=False, default="SubmitForm")
     currency = Column(String(16), nullable=False, default="USD")
     allowed_statuses = Column(Text, nullable=True)
     flow_ids = Column(Text, nullable=True)
@@ -816,11 +816,11 @@ def resolve_tiktok_event_name(
     pb: Optional[WhaleTikTokPostback] = None,
     override: Optional[str] = None,
 ) -> str:
-    for value in (override, pixel.event_name if pixel else None, pb.event if pb else None, "Purchase"):
+    for value in (override, pixel.event_name if pixel else None, pb.event if pb else None, "SubmitForm"):
         normalized = (value or "").strip()
         if normalized:
             return normalized
-    return "Purchase"
+    return "SubmitForm"
 
 
 def public_tiktok_result(status_code: Optional[int], parsed: Any, text: str) -> Dict[str, Any]:
@@ -1566,7 +1566,7 @@ async def admin_tiktok_pixel_create(request: Request, db: Session = Depends(get_
         buyer_name=form.get("buyer_name", "").strip() or None,
         dataset_id=form.get("dataset_id", "").strip(),
         access_token=form.get("access_token", "").strip(),
-        event_name=form.get("event_name", "").strip() or "Purchase",
+        event_name=form.get("event_name", "").strip() or "SubmitForm",
         currency=(form.get("currency", "").strip() or "USD").upper(),
         allowed_statuses=form.get("allowed_statuses", "").strip() or None,
         flow_ids=form.get("flow_ids", "").strip() or None,
@@ -1626,7 +1626,7 @@ async def admin_tiktok_pixel_update(
     new_token = form.get("access_token", "").strip()
     if new_token:
         pixel.access_token = new_token
-    pixel.event_name = form.get("event_name", "").strip() or "Purchase"
+    pixel.event_name = form.get("event_name", "").strip() or "SubmitForm"
     pixel.currency = (form.get("currency", "").strip() or "USD").upper()
     pixel.allowed_statuses = form.get("allowed_statuses", "").strip() or None
     pixel.flow_ids = form.get("flow_ids", "").strip() or None
