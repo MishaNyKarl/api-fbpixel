@@ -244,6 +244,26 @@ Endpoint:
 POST /postbacks/whale/tiktok?secret=<WHALE_TIKTOK_SECRET>
 ```
 
+The same endpoint also accepts GET query postbacks:
+
+```text
+GET /postbacks/whale/tiktok?secret=<WHALE_TIKTOK_SECRET>&source=whale&event=CompletePayment&status=approved&payout={payout}&pixel_id={aff_pixel_id}&ttclid={aff_click_id}&click_uuid={uuid}&event_id={conversion_id}&campaign_id={aff_sub1}
+```
+
+Supported query aliases:
+
+- `pixel_id` or `aff_pixel_id`
+- `ttclid`, `aff_click_id`, `clickid`, or `click_id`
+- `click_uuid`, `uuid`, `clickid`, `click_id`, or `aff_click_id`
+- `campaign_id` or `aff_sub1`
+- `campaign_name` or `aff_sub2`
+- `adgroup_id` or `aff_sub3`
+- `adgroup_name` or `aff_sub4`
+- `creative_id` or `aff_sub5`
+- `creative_name` or `aff_sub6`
+
+If `event_id` is missing, the service generates a deterministic fallback. For production, pass a real conversion/order id when Whale can provide it.
+
 For manual diagnostics only, the TikTok event can be overridden in the URL:
 
 ```text

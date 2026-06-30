@@ -253,6 +253,28 @@ def main_test():
         assert len(fake_send_to_tiktok.calls) == 2
         assert fake_send_to_tiktok.calls[-1][0]["data"][0]["event"] == "SubmitForm"
 
+        whale_get = client.get(
+            "/postbacks/whale/tiktok",
+            params={
+                "secret": "whale-secret",
+                "source": "whale",
+                "event": "CompletePayment",
+                "status": "approved",
+                "payout": "14.50",
+                "aff_pixel_id": "D75QFE3C77UDH74CJM70",
+                "aff_click_id": "ttclid_from_query",
+                "aff_sub1": "campaign_from_query",
+            },
+        )
+        assert whale_get.status_code == 200, whale_get.text
+        assert whale_get.json()["accepted"] is True
+        assert whale_get.json()["event_id"].startswith("whale_")
+        assert len(fake_send_to_tiktok.calls) == 3
+        sent_get_payload = fake_send_to_tiktok.calls[-1][0]
+        assert sent_get_payload["data"][0]["event"] == "SubmitForm"
+        assert sent_get_payload["data"][0]["user"]["ttclid"] == "ttclid_from_query"
+        assert "campaign_from_query" in sent_get_payload["data"][0]["properties"]["query"]
+
         duplicate_whale = client.post(
             "/postbacks/whale/tiktok",
             json=whale_payload,
@@ -260,7 +282,7 @@ def main_test():
         )
         assert duplicate_whale.status_code == 200, duplicate_whale.text
         assert duplicate_whale.json()["duplicate"] is True
-        assert len(fake_send_to_tiktok.calls) == 2
+        assert len(fake_send_to_tiktok.calls) == 3
 
         pending_payload = dict(whale_payload)
         pending_payload["event_id"] = "conversion_pending"
@@ -269,7 +291,7 @@ def main_test():
         assert pending.status_code == 200, pending.text
         assert pending.json()["ignored"] is True
         assert pending.json()["reason"] == "status_not_allowed"
-        assert len(fake_send_to_tiktok.calls) == 2
+        assert len(fake_send_to_tiktok.calls) == 3
 
         unknown_payload = dict(whale_payload)
         unknown_payload["event_id"] = "conversion_unknown"

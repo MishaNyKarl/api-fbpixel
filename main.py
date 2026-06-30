@@ -617,7 +617,7 @@ class TrackEvent(BaseModel):
 class WhaleTikTokPostback(BaseModel):
     source: Optional[str] = None
     event: Optional[str] = None
-    event_id: str
+    event_id: Optional[str] = None
     status: str
     payout: Optional[Any] = None
     offer_id: Optional[str] = None
@@ -800,6 +800,74 @@ def is_macro_or_empty(value: Optional[str]) -> bool:
     if not text:
         return True
     return text.startswith("__") and text.endswith("__")
+
+
+def first_real_value(*values: Optional[Any]) -> Optional[str]:
+    for value in values:
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text and not is_macro_or_empty(text):
+            return text
+    return None
+
+
+def query_value(params: Any, *names: str) -> Optional[str]:
+    for name in names:
+        value = params.get(name)
+        if value is not None:
+            return value
+    return None
+
+
+def whale_postback_from_query(request: Request) -> WhaleTikTokPostback:
+    params = request.query_params
+    return WhaleTikTokPostback(
+        source=query_value(params, "source"),
+        event=query_value(params, "event"),
+        event_id=query_value(params, "event_id", "conversion_id", "transaction_id", "order_id", "id"),
+        status=query_value(params, "status") or "",
+        payout=query_value(params, "payout", "value"),
+        offer_id=query_value(params, "offer_id", "offer"),
+        flow_id=query_value(params, "flow_id", "flow"),
+        source_id=query_value(params, "source_id"),
+        click_uuid=query_value(params, "click_uuid", "uuid", "clickid", "click_id", "aff_click_id"),
+        ip=query_value(params, "ip"),
+        ttclid=query_value(params, "ttclid", "aff_click_id", "clickid", "click_id"),
+        pixel_id=query_value(params, "pixel_id", "aff_pixel_id"),
+        campaign_id=query_value(params, "campaign_id", "aff_sub1"),
+        campaign_name=query_value(params, "campaign_name", "aff_sub2"),
+        adgroup_id=query_value(params, "adgroup_id", "aff_sub3"),
+        adgroup_name=query_value(params, "adgroup_name", "aff_sub4"),
+        creative_id=query_value(params, "creative_id", "aff_sub5"),
+        creative_name=query_value(params, "creative_name", "aff_sub6"),
+        created_at=query_value(params, "created_at", "created"),
+        updated_at=query_value(params, "updated_at", "updated"),
+        user_agent=query_value(params, "user_agent", "ua"),
+    )
+
+
+def normalize_whale_postback(pb: WhaleTikTokPostback) -> WhaleTikTokPostback:
+    pb.pixel_id = first_real_value(pb.pixel_id)
+    pb.flow_id = first_real_value(pb.flow_id)
+    pb.click_uuid = first_real_value(pb.click_uuid)
+    pb.ttclid = first_real_value(pb.ttclid)
+    pb.event_id = first_real_value(pb.event_id)
+    if not pb.event_id:
+        seed = "|".join(
+            item or ""
+            for item in (
+                pb.pixel_id,
+                pb.click_uuid,
+                pb.ttclid,
+                pb.status,
+                str(pb.payout or ""),
+                pb.offer_id,
+                pb.flow_id,
+            )
+        )
+        pb.event_id = "whale_" + hashlib.sha256(seed.encode("utf-8")).hexdigest()[:16]
+    return pb
 
 
 def tiktok_allowed_statuses(pixel: TikTokPixel) -> Set[str]:
@@ -1986,15 +2054,13 @@ async def admin_click_diagnostics(
     )
 
 
-@app.post("/postbacks/whale/tiktok")
-async def whale_tiktok_postback(
+async def process_whale_tiktok_postback(
     pb: WhaleTikTokPostback,
     request: Request,
-    secret: Optional[str] = Query(default=None),
-    tiktok_event: Optional[str] = Query(default=None),
-    db: Session = Depends(get_db),
-):
-    ensure_whale_tiktok_secret(request, secret)
+    tiktok_event: Optional[str],
+    db: Session,
+) -> Dict[str, Any]:
+    pb = normalize_whale_postback(pb)
     context = {
         "clickid": pb.click_uuid,
         "ttclid": pb.ttclid,
@@ -2122,6 +2188,29 @@ async def whale_tiktok_postback(
         "event_id": pb.event_id,
         "tiktok": tiktok_result,
     }
+
+
+@app.post("/postbacks/whale/tiktok")
+async def whale_tiktok_postback(
+    pb: WhaleTikTokPostback,
+    request: Request,
+    secret: Optional[str] = Query(default=None),
+    tiktok_event: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    ensure_whale_tiktok_secret(request, secret)
+    return await process_whale_tiktok_postback(pb, request, tiktok_event, db)
+
+
+@app.get("/postbacks/whale/tiktok")
+async def whale_tiktok_postback_get(
+    request: Request,
+    secret: Optional[str] = Query(default=None),
+    tiktok_event: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    ensure_whale_tiktok_secret(request, secret)
+    return await process_whale_tiktok_postback(whale_postback_from_query(request), request, tiktok_event, db)
 
 
 @app.post("/api/pixel/track")
